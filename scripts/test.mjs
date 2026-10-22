@@ -26,6 +26,7 @@ excluded.add('job-customer-identity-api.mjs');
 excluded.add('browser-job-customer-choice.mjs');
 excluded.add('browser-job-create-retry.mjs');
 excluded.add('browser-job-finance-preservation.mjs');
+excluded.add('browser-job-edge-cases.mjs');
 excluded.add('browser-independent-customers.mjs');
 excluded.add('browser-contact-lifecycle.mjs');
 excluded.add('browser-quote-create-retry.mjs');
