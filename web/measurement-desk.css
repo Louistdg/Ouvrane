@@ -1,0 +1,38 @@
+#measurementDesk .tabulator{background:var(--sx-surface);color:var(--sx-ink);border:1px solid var(--sx-line-strong);font:inherit;max-width:100%}
+#measurementDesk .tabulator :is(.tabulator-header,.tabulator-col,.tabulator-row,.tabulator-cell){background:var(--sx-surface);color:var(--sx-ink);border-color:var(--sx-line)}
+#measurementDesk .tabulator .tabulator-row-even{background:var(--sx-raised)}
+#measurementDesk .tabulator .tabulator-cell.tabulator-editing input{background:var(--sx-sunken);color:var(--sx-ink);min-height:40px}
+#measurementDesk .measurement-plane{padding:16px 0;border-bottom:1px solid var(--sx-line)}
+#measurementDesk #measurementFeedback{margin:16px 0;color:var(--sx-ink)}
+@media(max-width:600px){#measurementDesk .tabulator .tabulator-cell{min-height:44px}#measurementDesk .modal-actions{display:flex;flex-wrap:wrap;gap:8px}}
+
+#measurementDesk label{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:0;margin-block:12px}
+#measurementDesk label :is(input,select){width:100%;min-width:0;min-height:44px}
+#measurementDesk details>summary{cursor:pointer;padding:14px 0;font-weight:600}
+#measurementDesk .form-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+@media(max-width:600px){#measurementDesk .form-two{grid-template-columns:minmax(0,1fr)}}
+
+#measurementDesk .measurement-table-hint{display:none}
+@media(max-width:600px){#measurementDesk .measurement-table-hint{display:block;color:var(--sx-muted)}#measurementDesk .tabulator-tableholder{overflow-x:auto!important;touch-action:pan-x pan-y}}
+#measurementPurchase label{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+#measurementPurchase :is(input,select){min-height:44px;min-width:0;width:100%}
+#measurementPurchase fieldset{margin:20px 0;padding:16px;border:1px solid var(--sx-line-strong);border-radius:8px}
+#measurementPurchase legend label{display:block}#measurementPurchase input[type=checkbox]{width:24px;min-height:24px;vertical-align:middle}
+#measurementPurchase .form-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+@media(max-width:600px){#measurementPurchase .form-two{grid-template-columns:minmax(0,1fr)}}
+.supplier-import-entry{padding:20px;margin-top:20px}.supplier-import-entry h2{margin:0}.supplier-import-columns{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.supplier-import-table{overflow-x:auto;max-width:100%;margin:16px 0;border:1px solid var(--border,#cbd0d6);border-radius:10px}.supplier-import-table table{min-width:650px;width:100%;border-collapse:collapse}.supplier-import-table th,.supplier-import-table td{text-align:left;padding:10px;border-bottom:1px solid var(--border,#cbd0d6);white-space:normal;overflow-wrap:anywhere}.supplier-import-table th{font-size:12px}.supplier-import-confirm{display:flex!important;align-items:flex-start;gap:8px;margin:16px 0}.supplier-import-confirm input{width:auto!important;flex:0 0 auto}.supplier-import-checksum{overflow-wrap:anywhere;font-size:12px}#supplierImports label{display:block;margin-bottom:12px}#supplierImports select,#supplierImports input:not([type=checkbox]){width:100%;min-width:0}#supplierImports .detail-row{gap:12px}#supplierImports .detail-row span{min-width:0;overflow-wrap:anywhere}.measurement-tariff-source{font-size:12px}.measurement-tariff-apply{margin:4px 0 12px}@media(max-width:600px){.supplier-import-columns{grid-template-columns:1fr}.supplier-import-history .detail-row{flex-wrap:wrap}}
+.supplier-import-history .detail-row small{display:block;margin-top:4px}.supplier-import-scroll-hint{display:none}@media(max-width:600px){.supplier-import-scroll-hint{display:block;font-size:12px;color:var(--muted)}}
+
+#measurementTaskDesk>p{overflow-wrap:anywhere}
+#measurementTaskDesk form>label{display:flex;flex-direction:column;gap:6px;margin:14px 0}
+#measurementTaskDesk form>label :is(input:not([type=checkbox]),textarea,select){width:100%;min-width:0;min-height:44px}
+#measurementTaskDesk fieldset{margin:18px 0;padding:12px;border:1px solid var(--sx-line-strong);border-radius:10px}
+#measurementTaskDesk .measurement-task-material{display:flex;align-items:center;gap:12px;min-height:60px;padding:10px 4px;cursor:pointer}
+#measurementTaskDesk .measurement-task-material+label{border-top:1px solid var(--sx-line)}
+#measurementTaskDesk .measurement-task-material input{flex:0 0 22px;width:22px;min-height:22px;height:22px;margin:0}
+#measurementTaskDesk .measurement-task-material span{min-width:0}
+#measurementTaskDesk .measurement-task-material :is(strong,small){display:block;overflow-wrap:anywhere}
+#measurementTaskDesk .measurement-task-material small{margin-top:4px;color:var(--sx-muted);line-height:1.5}
+
+#measurementTaskDesk form>.measurement-task-older{flex-direction:row;align-items:flex-start;gap:10px}
+#measurementTaskDesk .measurement-task-older input{width:22px;height:22px;flex:0 0 22px}

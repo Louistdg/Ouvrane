@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {calculatePlanPage} from '../worker/plan-geometry.js';
+const input={pageNumber:1,pageWidth:600,pageHeight:400,calibration:{points:[{x:.1,y:.1},{x:.6,y:.1}],lengthM:'10'},annotations:[{id:'eave',kind:'length',label:'Gouttière',points:[{x:.1,y:.2},{x:.6,y:.2}]},{id:'slope',kind:'length',label:'Développé',points:[{x:.1,y:.2},{x:.1,y:.515}]},{id:'area',kind:'area',label:'Surface',points:[{x:.1,y:.2},{x:.6,y:.2},{x:.6,y:.83},{x:.1,y:.83}]},{id:'opening',kind:'opening',label:'Ouverture',points:[{x:.2,y:.3},{x:.25,y:.3},{x:.25,y:.45},{x:.2,y:.45}]}]};
+const r=calculatePlanPage(input);assert.deepEqual(r.result.annotations.map(a=>a.quantity),['10.000','4.200','84.000','2.000']);
+assert.equal(calculatePlanPage({...input,pageWidth:1200,pageHeight:800}).result.annotations[2].quantity,'84.000');
+assert.throws(()=>calculatePlanPage({...input,calibration:null}),/Étalonnez/);assert.throws(()=>calculatePlanPage({...input,calibration:{...input.calibration,points:[{x:.1,y:.1},{x:.1,y:.1}]}}),/proches/);
+assert.throws(()=>calculatePlanPage({...input,annotations:[{...input.annotations[2],points:[{x:0,y:0},{x:1,y:1},{x:0,y:1},{x:1,y:0}]}]}),/croise/);
+assert.throws(()=>calculatePlanPage({...input,annotations:[{...input.annotations[0],points:[{x:-.1,y:0},{x:1,y:0}]}]}),/Coordonnée/);
+assert.throws(()=>calculatePlanPage({...input,annotations:[input.annotations[0],input.annotations[0]]}),/double/);
+console.log('PASS calibrated lengths/areas/openings, scale invariance, crossed polygons, zero calibration and invalid coordinates.');

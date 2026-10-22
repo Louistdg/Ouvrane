@@ -1,0 +1,15 @@
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+import assert from 'node:assert/strict';
+const db=new DatabaseSync(':memory:');db.exec(`PRAGMA foreign_keys=ON;CREATE TABLE organizations(id TEXT PRIMARY KEY);CREATE TABLE profiles(id TEXT PRIMARY KEY);CREATE TABLE quote_site_visits(organization_id TEXT,id TEXT,PRIMARY KEY(organization_id,id));CREATE TABLE quotes_server(id TEXT PRIMARY KEY,organization_id TEXT,status TEXT,archived_at TEXT,lines_json TEXT,updated_at TEXT);`);
+db.exec(readFileSync(new URL('../drizzle/0053_measurement_snapshots.sql',import.meta.url),'utf8'));
+db.exec(`INSERT INTO organizations VALUES('org');INSERT INTO profiles VALUES('owner');INSERT INTO quote_site_visits VALUES('org','visit');INSERT INTO quotes_server VALUES('quote','org','draft',NULL,'[]','before');`);
+db.prepare('INSERT INTO measurement_snapshots(organization_id,id,visit_id,version,operation_key,input_json,result_json,source_label,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run('org','m1','visit',1,'key','{}','{}','Terrain','owner','stamp');
+assert.throws(()=>db.prepare("UPDATE measurement_snapshots SET source_label='Changed' WHERE id='m1'").run(),/measurement_immutable/);
+const insert=db.prepare('INSERT INTO measurement_quote_links VALUES(?,?,?,?,?,?,?,?)');
+assert.throws(()=>insert.run('org','m1','quote','stale','[]','[{"qty":1}]','owner','now'),/measurement_quote_stale/);assert.equal(db.prepare("SELECT lines_json FROM quotes_server").get().lines_json,'[]');
+insert.run('org','m1','quote','[]','[{"qty":1}]','[{"qty":1}]','owner','now');assert.equal(db.prepare("SELECT lines_json FROM quotes_server").get().lines_json,'[{"qty":1}]');
+assert.throws(()=>insert.run('org','m1','quote','[]','[]','[]','owner','now'),/measurement_quote_stale|UNIQUE/);
+db.prepare("UPDATE quotes_server SET status='accepted'").run();
+assert.throws(()=>insert.run('org','m1','quote','[{"qty":1}]','[]','[]','owner','now'),/measurement_quote_stale/);assert.equal(db.prepare("SELECT lines_json FROM quotes_server").get().lines_json,'[{"qty":1}]');
+assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);db.close();console.log('PASS immutable snapshots and atomic quote guard: stale state, duplicate and accepted quote cannot alter lines.');

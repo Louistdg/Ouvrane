@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+const db=new DatabaseSync(':memory:');db.exec(`PRAGMA foreign_keys=ON;CREATE TABLE organizations(id TEXT PRIMARY KEY);CREATE TABLE profiles(id TEXT PRIMARY KEY);CREATE TABLE quote_site_visits(organization_id TEXT,id TEXT,PRIMARY KEY(organization_id,id));CREATE TABLE quotes_server(id TEXT PRIMARY KEY,organization_id TEXT,status TEXT,archived_at TEXT,lines_json TEXT,updated_at TEXT);CREATE TABLE secure_documents(id TEXT PRIMARY KEY,organization_id TEXT,status TEXT,archived_at TEXT,content_type TEXT,checksum_sha256 TEXT);INSERT INTO organizations VALUES('org'),('other');INSERT INTO profiles VALUES('owner');INSERT INTO quote_site_visits VALUES('org','visit');INSERT INTO secure_documents VALUES('doc-a','org','available',NULL,'application/pdf','sha-a'),('doc-b','org','available',NULL,'application/pdf','sha-b'),('foreign-doc','other','available',NULL,'application/pdf','sha-x');`);
+for(const file of ['0053_measurement_snapshots.sql','0055_plan_versions.sql'])db.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
+db.prepare('INSERT INTO plan_sets VALUES(?,?,?,?,?,?,?,?)').run('org','plan','visit',null,'Plan','key-plan','owner','stamp');
+const file=db.prepare('INSERT INTO plan_file_versions VALUES(?,?,?,?,?,?,?,?,?,?)');
+assert.throws(()=>file.run('org','wrong','plan',1,'foreign-doc','sha-x','Wrong','wrong-key','owner','stamp'),/plan_document_unavailable/);
+file.run('org','file-a','plan',1,'doc-a','sha-a','A','file-key-a','owner','stamp');
+const note=db.prepare('INSERT INTO plan_annotation_snapshots VALUES(?,?,?,?,?,?,?,?,?,?)');note.run('org','note-a','file-a',1,1,'{}','{}','note-key-a','owner','stamp');
+assert.throws(()=>db.prepare("UPDATE plan_file_versions SET checksum_sha256='changed'").run(),/plan_file_immutable/);assert.throws(()=>db.prepare("UPDATE plan_annotation_snapshots SET input_json='changed'").run(),/plan_annotation_immutable/);
+const measure=db.prepare('INSERT INTO measurement_snapshots(organization_id,id,visit_id,version,operation_key,input_json,result_json,source_label,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)');const input=JSON.stringify({planSources:[{snapshotId:'note-a'}]});measure.run('org','m1','visit',1,'measure-a',input,'{}','Plan A','owner','stamp');
+file.run('org','file-b','plan',2,'doc-b','sha-b','B','file-key-b','owner','stamp');
+assert.throws(()=>measure.run('org','m2','visit',2,'measure-b',input,'{}','Plan A','owner','stamp'),/measurement_plan_stale/);assert.throws(()=>note.run('org','note-b','file-a',1,2,'{}','{}','note-key-b','owner','stamp'),/plan_annotation_stale/);
+assert.equal(db.prepare("SELECT COUNT(*) n FROM measurement_snapshots").get().n,1);assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);db.close();console.log('PASS immutable plan files/annotations, tenant document guard, and atomic stale-source guards.');

@@ -1,0 +1,526 @@
+/* Audit de la vue telephone — 18 octobre 2026.
+   Chaque regle corrige un defaut constate sur une capture en 390 x 844.
+   Rien n'est decoratif ici : si une regle ne se voit pas, elle n'a pas lieu
+   d'etre. Specificite volontairement plus forte que le style de base, sans
+   !important. */
+
+@media (max-width: 899px) {
+
+  /* 1. L'en-tete. Le nom de l'entreprise passait sur deux lignes : la barre
+        faisait 62 px de haut et repoussait tout le reste. Il tient maintenant
+        sur une ligne, tronque proprement. */
+  body.socle-v3 .topbar {
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    min-height: 56px;
+  }
+  body.socle-v3 .topbar .brand { flex: 0 0 auto; }
+  body.socle-v3 .topbar .workspace {
+    flex: 1 1 auto;
+    min-width: 0;
+    height: auto;
+    display: block;
+  }
+  body.socle-v3 .topbar .workspace #organizationLabel {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: var(--sx-text-sm);
+    line-height: 1.2;
+  }
+  body.socle-v3 .topbar .workspace small { display: none; }
+
+  /* Le bouton de commandes portait son libelle entier : 97 px a lui seul.
+     Sur telephone il redevient une icone de 44 px. */
+  body.socle-v3 .topbar .ia-command-trigger {
+    flex: 0 0 auto;
+    width: 44px;
+    min-width: 44px;
+    padding: 0;
+    font-size: 0;
+  }
+  body.socle-v3 .topbar .ia-command-trigger::before { font-size: 18px; }
+  body.socle-v3 .topbar .theme-button { min-width: 44px; }
+
+  /* 2. La ligne d'etat de sauvegarde prenait une bande pleine largeur sous la
+        barre. Elle reste lisible, mais discrete et d'une seule ligne. */
+  body.socle-v3 #saveStatus {
+    min-height: 18px;
+    padding: 1px 10px;
+    font-size: var(--sx-text-2xs);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* 3. L'en-tete de page empilait quatre blocs de texte avant le premier
+        controle : surtitre, titre, phrase d'introduction, puis le titre de la
+        rubrique. On garde le titre et une phrase courte. */
+  body.socle-v3 #main .heading .eyebrow { display: none; }
+  body.socle-v3 #main .heading h1 {
+    font-size: var(--sx-text-xl);
+    line-height: 1.15;
+    margin: 0 0 2px;
+  }
+  body.socle-v3 #main .heading p {
+    margin: 0;
+    font-size: var(--sx-text-sm);
+    line-height: 1.35;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  body.socle-v3 #main .heading { gap: 2px; }
+
+  /* 4. Le bouton « Relever » a quitté le coin flottant : il vit désormais
+        dans la barre d'en-tête (voir field-journal.css), donc plus aucun
+        contenu ne passe dessous. La page garde seulement la place de la
+        barre de navigation du bas. */
+  body.socle-v3 #main { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+
+  /* 5. Les explications du centre de controle etaient sur deux colonnes de
+        180 px : illisibles au telephone. Une colonne, et le texte respire. */
+  body.socle-v3 .ia-attention-guides {
+    grid-template-columns: 1fr;
+    gap: var(--sx-space-2);
+  }
+
+  /* 6. Les phrases qui expliquent comment faire defiler un tableau remplacent
+        une interface qui ne tient pas. On les retire, et on garde le defilement
+        horizontal la ou il est inevitable. */
+  body.socle-v3 .v3-table-scroll-hint,
+  body.socle-v3 .audit-scroll-hint { display: none; }
+
+  /* 7. La phrase d'introduction pleine largeur, au-dessus du titre, redisait
+        ce que le titre dit deja. Elle disparait au telephone. */
+  body.socle-v3 #main .ia-screen-purpose { display: none; }
+
+  /* 8. Le bouton « Commandes » gardait son libelle : il ne restait qu'une case
+        vide. Sur telephone, la recherche suffit : il disparait. */
+  body.socle-v3 .topbar .ia-command-trigger { display: none; }
+
+  /* 9. Les quatre filtres empiles prenaient 172 px avant le premier chantier.
+        Deux par ligne, plus bas, et le champ de recherche compact. */
+  body.socle-v3 #main .toolbar.ia-b-filters { gap: 6px; padding: 8px; }
+  body.socle-v3 #main .toolbar.ia-b-filters > * { min-height: var(--sx-tap); }
+  body.socle-v3 #main .toolbar.ia-b-filters select,
+  body.socle-v3 #main .toolbar.ia-b-filters input { min-height: var(--sx-tap); font-size: var(--sx-text-sm); }
+  body.socle-v3 #main .toolbar.ia-b-filters label { font-size: var(--sx-text-2xs); }
+
+  /* 10. La puce d'entreprise n'est plus une case grise vide : le chevron
+        reste un vrai bouton tactile de 44 px, sans fond ni bordure. */
+  body.socle-v3 .topbar .workspace .organization-mobile-trigger {
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    min-width: 32px;
+    min-height: 44px;
+    padding: 0;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: var(--sx-ink) !important;
+    font-size: 16px !important;
+  }
+
+  /* 11. Le nom de l'entreprise tenait sur deux lignes. Il est coupe a une
+        ligne, avec des points de suspension. */
+  body.socle-v3 .topbar .workspace #organizationLabel {
+    display: block;
+    max-height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 20px;
+  }
+
+  /* 12. La phrase sous le titre passait sur deux lignes : une seule suffit. */
+  body.socle-v3 #main .heading p { -webkit-line-clamp: 1; }
+
+  /* 13. Le canevas des chantiers est un ecran de bureau. Au telephone il
+        affichait ses cartes EN PLUS du tableau : la meme liste deux fois. */
+  body.socle-v3 #main .ia-job-canvas { display: none; }
+
+  /* 14. Le nom de l'entreprise, seconde tentative : c'est le strong qui portait
+        les deux lignes, pas son parent. */
+  body.socle-v3 .topbar .workspace .organization-current {
+    display: block;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-height: 20px;
+    line-height: 20px;
+  }
+
+  /* 15. L'en-tete de page prenait les trois quarts de l'ecran : titre, phrase,
+        recherche, quatre filtres. Sur telephone il ne reste que le titre, sur
+        une ligne, et les actions passent a droite. */
+  body.socle-v3 #main .heading { align-items: stretch; gap: 6px; }
+  body.socle-v3 #main .heading h1 { font-size: var(--sx-text-lg); }
+  body.socle-v3 #main .heading p { display: none; }
+
+  /* 16. Les filtres tiennent sur une seule ligne qui defile horizontalement.
+        La hauteur reste a 48 px : c'est la regle du terrain. */
+  body.socle-v3 #main .toolbar.ia-b-filters {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    padding: 6px 8px;
+    gap: 8px;
+    scrollbar-width: none;
+  }
+  body.socle-v3 #main .toolbar.ia-b-filters::-webkit-scrollbar { display: none; }
+  body.socle-v3 #main .toolbar.ia-b-filters > * { flex: 0 0 auto; }
+  body.socle-v3 #main .toolbar.ia-b-filters input { flex: 0 0 62%; }
+  body.socle-v3 #main .toolbar.ia-b-filters select { min-width: 168px; }
+
+  /* 17. La liste des chantiers est un tableau de sept colonnes. Sur telephone,
+        on ne garde que ce qui se lit : l'identite du chantier. Les autres
+        colonnes sont accessibles en ouvrant la fiche. L'entete du tableau
+        disparait, et le bouton « Afficher plus » ne flotte plus sur les lignes. */
+  body.socle-v3 #main .ia-jobs-table thead { display: none; }
+  body.socle-v3 #main .ia-jobs-table .ia-job-client,
+  body.socle-v3 #main .ia-jobs-table .ia-job-town,
+  body.socle-v3 #main .ia-jobs-table .ia-job-team,
+  body.socle-v3 #main .ia-jobs-table .ia-job-progress-cell,
+  body.socle-v3 #main .ia-jobs-table .ia-job-action { display: none; }
+  body.socle-v3 #main .ia-jobs-table tr { height: auto; }
+  body.socle-v3 #main .ia-jobs-list { position: relative; }
+  body.socle-v3 #main .ia-jobs-more,
+  body.socle-v3 #main .ia-jobs-table + .btn { position: static; margin: 8px 0; }
+  /* 18. Le titre etait centre par le style de base : il repasse a gauche, comme
+        partout ailleurs. La colonne « statut » disparait aussi de la liste : le
+        statut se lit dans la fiche, pas dans une ligne de 44 px. */
+  body.socle-v3 #main .heading { text-align: left; }
+  body.socle-v3 #main .ia-jobs-table .ia-job-status { display: none; }
+
+  /* 19. « Afficher plus » flottait au-dessus de la derniere ligne. Il reprend sa
+        place dans le flux, sous la liste. */
+  body.socle-v3 #main .ia-b-more { position: static; margin: 8px 0; }
+  body.socle-v3 #main .ia-b-more .btn { width: 100%; }
+}
+/* Onglets du chantier deplacables. L'onglet saisi se souleve, l'ordre se voit
+   pendant le geste, et rien d'autre ne bouge. */
+.job-workspace-tabs button.is-dragging {
+  opacity: 0.85;
+  box-shadow: var(--sx-shadow-2);
+  outline: 2px solid var(--sx-accent);
+  outline-offset: 1px;
+  cursor: grabbing;
+}
+.job-workspace-tabs button { cursor: grab; touch-action: pan-y; }
+/* Fleches de deplacement des onglets. Discretes a la souris, toujours visibles
+   au doigt : 32 px de large, 44 px de haut pour rester prenables. */
+.job-workspace-tabs .job-tab-move {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.job-workspace-tabs .job-tab-move button {
+  min-width: 28px;
+  min-height: 28px;
+  padding: 0;
+  border: 1px solid var(--sx-line);
+  border-radius: 6px;
+  background: var(--sx-raised);
+  color: var(--sx-ink-soft);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+.job-workspace-tabs .job-tab-move button:disabled { opacity: 0.35; cursor: default; }
+.job-workspace-tabs .job-tab-move button:focus-visible { outline: 2px solid var(--sx-accent); outline-offset: 1px; }
+@media (max-width: 899px) {
+  .job-workspace-tabs .job-tab-move button { min-width: 36px; min-height: 44px; font-size: 12px; }
+
+  /* 20. La page Devis empilait quatre blocs avant la premiere ligne : le
+        panneau « Pre-devis terrain », un premier jeu d'onglets, le titre, un
+        second jeu d'onglets. Sur telephone le panneau se reduit a son bouton :
+        on garde l'acces, pas le discours. */
+  body.socle-v3 #main .field-action-strip { padding: 10px 12px; }
+  body.socle-v3 #main .field-action-strip .eyebrow,
+  body.socle-v3 #main .field-action-strip h2,
+  body.socle-v3 #main .field-action-strip span { display: none; }
+  body.socle-v3 #main .field-action-strip .btn { width: 100%; }
+
+  /* 21. Les titres de page etaient centres par le style de base, alors que tout
+        le reste est aligne a gauche. */
+  body.socle-v3 #main h1 { text-align: left; }
+
+  /* 22. Pres d'un texte sur deux passait sous 12 px : illisible au soleil.
+        Les mentions secondaires remontent a 12 px minimum, sans toucher aux
+        titres ni aux libelles compacts des tableaux. */
+  body.socle-v3 #main small,
+  body.socle-v3 #main .help-line,
+  body.socle-v3 #main .muted { font-size: 12px; line-height: 1.35; }
+
+  /* 23. Les textes les plus petits mesures sur l'accueil et les listes :
+        etats de chantier, actions du centre de controle, mentions vides.
+        Tous remontent a 12 px, sauf les marques de portail qui restent des
+        logos. */
+  body.socle-v3 #main .ia-job-status,
+  body.socle-v3 #main .ia-job-card-counts,
+  body.socle-v3 #main .ia-attention-action,
+  body.socle-v3 #main .is-empty { font-size: 12px; }
+
+  /* 24. Les cellules de tableau et les pastilles restaient a 11 px. */
+  body.socle-v3 #main td,
+  body.socle-v3 #main th,
+  body.socle-v3 #main .badge { font-size: 12px; }
+}
+/* Tri des chantiers : deux fleches par ligne, discretes a la souris et
+   prenables au doigt. */
+body.socle-v3 #main .ia-jobs-table { width: 100%; min-width: 0; }
+body.socle-v3 #main .ia-jobs-table-wrap { overflow-x: visible; }
+#main .ia-jobs-table .ia-job-identity { width: auto; }
+#main .ia-jobs-table .ia-job-order { width: 1%; white-space: nowrap; vertical-align: middle; }
+#main .ia-job-order-buttons { display: inline-flex; gap: 2px; }
+#main .ia-job-order-buttons [data-job-move] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--sx-line);
+  border-radius: 6px;
+  background: var(--sx-raised);
+  color: var(--sx-ink-soft);
+  font-size: 10px;
+  cursor: pointer;
+}
+#main .ia-job-order-buttons [data-job-move][aria-disabled="true"] { opacity: 0.3; cursor: default; }
+#main .ia-job-order-buttons [data-job-move]:focus-visible { outline: 2px solid var(--sx-accent); outline-offset: 1px; }
+@media (max-width: 899px) {
+  #main .ia-job-order-buttons { flex-direction: column; }
+  #main .ia-job-order-buttons [data-job-move] { width: 44px; height: 32px; font-size: 11px; }
+}
+/* Bloc final isole : il reprend les regles critiques de la liste des chantiers.
+   Il est ecrit a part parce qu'une des regles precedentes s'est retrouvee hors
+   de son bloc media, et que je prefere une regle qui s'applique a coup sur
+   plutot qu'une chasse au crochet manquant. */
+@media (max-width: 899px) {
+  body.socle-v3 #main .ia-jobs-table { width: 100%; }
+  body.socle-v3 #main .ia-jobs-table thead { display: none; }
+  body.socle-v3 #main .ia-jobs-table .ia-job-client,
+  body.socle-v3 #main .ia-jobs-table .ia-job-town,
+  body.socle-v3 #main .ia-jobs-table .ia-job-team,
+  body.socle-v3 #main .ia-jobs-table .ia-job-status,
+  body.socle-v3 #main .ia-jobs-table .ia-job-progress-cell,
+  body.socle-v3 #main .ia-jobs-table .ia-job-action { display: none; }
+  body.socle-v3 #main .ia-jobs-table .ia-job-identity { width: auto; display: block; }
+  body.socle-v3 #main .ia-jobs-table .ia-job-order { width: 52px; display: table-cell; }
+}
+/* La cellule d'action est rendue avec un style en ligne (`display:flex`), que
+   ni la feuille de style ni le module ne peuvent annuler : c'est le seul
+   endroit du projet ou !important est justifie, et il est justifie par cela.
+   Sur telephone, la colonne « Ouvrir » n'a pas de place : la ligne entiere est
+   cliquable. */
+@media (max-width: 899px) {
+  body.socle-v3 #main .ia-jobs-table td.ia-job-action { display: none !important; }
+}
+
+/* Le tri au telephone : les fleches occupent leur propre colonne, empilees,
+   large de 44 px, et ne touchent jamais le titre du chantier. */
+@media (max-width: 899px) {
+  body.socle-v3 #main .ia-jobs-table .ia-job-order {
+    display: table-cell;
+    width: 48px;
+    vertical-align: middle;
+    text-align: right;
+    padding: 0 2px;
+  }
+  body.socle-v3 #main .ia-job-order-buttons { flex-direction: column; gap: 4px; }
+  body.socle-v3 #main .ia-job-order-buttons [data-job-move] { width: 44px; height: 30px; }
+}
+/* Tri des chantiers : les fleches sont DANS la cellule d'identite, alignees a
+   droite, empilees. Aucune cellule de tableau ajoutee, donc aucune surprise de
+   mise en page, ni au bureau ni au telephone. */
+#main .ia-jobs-table .ia-job-row { position: relative; }
+#main .ia-jobs-table .ia-job-identity { padding-right: 0; }
+#main .ia-job-order-inline {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: row;
+  gap: 2px;
+}
+#main .ia-job-order-inline [data-job-move] {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--sx-line);
+  border-radius: 6px;
+  background: var(--sx-raised);
+  color: var(--sx-ink-soft);
+  font-size: 9px;
+  cursor: pointer;
+}
+#main .ia-job-order-inline [data-job-move][aria-disabled="true"] { opacity: 0.3; cursor: default; }
+#main .ia-job-order-inline [data-job-move]:focus-visible { outline: 2px solid var(--sx-accent); outline-offset: 1px; }
+@media (max-width: 899px) {
+  #main .ia-jobs-table .ia-job-identity { padding-right: 0; padding-bottom: 40px; }
+  #main .ia-job-order-inline { right: 4px; bottom: 2px; top: auto; transform: none; }
+  #main .ia-job-order-inline [data-job-move] { width: 42px; height: 34px; font-size: 11px; }
+}
+
+/* 25. Derniers textes mesures sous 12 px au telephone : références, méta de
+   chantier, pastilles, légendes de cartes et filtres. Le plancher de lecture
+   au soleil est 12 px. */
+@media (max-width: 899px) {
+  body.socle-v3 #main small,
+  body.socle-v3 #main .ia-job-mobile-meta,
+  body.socle-v3 #main .ia-job-reference,
+  body.socle-v3 #main .ia-job-status,
+  body.socle-v3 #main .ia-job-card-counts,
+  body.socle-v3 #main .ia-attention-copy small,
+  body.socle-v3 #main .ia-attention-category-empty,
+  body.socle-v3 #main .ia-attention-action,
+  body.socle-v3 #main .personal-head span,
+  body.socle-v3 #main .finance-box small,
+  body.socle-v3 #main .server-finance-grid small,
+  body.socle-v3 #main .asset-categories span,
+  body.socle-v3 #main .quote-list-row small,
+  body.socle-v3 #main .badge,
+  body.socle-v3 #main .link,
+  body.socle-v3 #main .ia-owner-task-state,
+  body.socle-v3 #main .ia-attention-guides-wrap > summary,
+  body.socle-v3 #main .ia-b-planning-head button,
+  body.socle-v3 #main .ia-b-planning-head .btn,
+  body.socle-v3 #main .ia-b-filters button,
+  body.socle-v3 #main .ia-b-filters input,
+  body.socle-v3 #main .ia-b-filters select { font-size: 12px; line-height: 1.35; }
+
+  body.socle-v3 #main .ia-job-mobile-meta { margin-top: 2px; }
+
+  /* 26. Les indicateurs Stock passent en deux colonnes : la valeur HTVA
+     « 357 951,74 € » ne se coupe plus au milieu d'un nombre. Le troisième
+     indicateur occupe la largeur restante. */
+  body.socle-v3 #main .finance-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.socle-v3 #main .finance-grid > .finance-box:last-child { grid-column: 1 / -1; }
+  body.socle-v3 #main .finance-box strong {
+    font-size: clamp(17px, 4.6vw, 19px);
+    line-height: 1.15;
+    overflow-wrap: anywhere;
+  }
+
+  /* 27. Devis : le résumé comptait une seconde fois ce que les pastilles
+     « En cours / Archives » disent déjà. Ses chiffres disparaissent au téléphone ; la création reste accessible, et
+     l'en-tête repasse sous un quart de l'écran. */
+  body.socle-v3 #main .quote-summary { display: flex; margin-bottom: 12px; }
+  body.socle-v3 #main .quote-summary > div { display: none; }
+  body.socle-v3 #main .quote-summary > button { width: 100%; min-height: 44px; }
+  body.socle-v3 #main .quote-area-tabs { margin-bottom: 10px; }
+  body.socle-v3 #main .quote-toolbar { margin: 0 0 10px; align-items: stretch; }
+  body.socle-v3 #main .quote-toolbar .btn { min-height: 44px; }
+
+  /* 28. Le raccourci de tri documentaire est une carte, pas un bouton nu. */
+  body.socle-v3 #main .document-triage-shortcut { margin-bottom: 10px; }
+}
+
+/* 29. Lisibilité au bureau : les tableaux denses restaient sous 10 px.
+   On ne change ni la hauteur des lignes ni le nombre de colonnes. */
+body.socle-v3 #main .ia-jobs-table th { font-size: 11px; }
+body.socle-v3 #main .ia-job-reference { font-size: 10.5px; flex: 0 0 auto; max-width: 100%; }
+body.socle-v3 #main .ia-attention-more .link { font-size: 12px; }
+body.socle-v3 #main .ia-job-client strong,
+body.socle-v3 #main .ia-job-team strong { font-size: 12px; }
+body.socle-v3 #main .ia-job-town span { font-size: 11.5px; }
+body.socle-v3 #main .ia-attention-copy strong { font-size: 12.5px; }
+body.socle-v3 #main .ia-attention-copy small { font-size: 11px; }
+body.socle-v3 #main .asset-table small { font-size: 11.5px; }
+
+/* 30. L'en-tête ne se comprime plus : les libellés d'action restent sur une
+   seule ligne, et « Relever » y occupe une icône de 44 px. */
+body.socle-v3 .header-right { flex-wrap: nowrap; white-space: nowrap; }
+body.socle-v3 .header-right form,
+body.socle-v3 .header-right button { white-space: nowrap; }
+
+/* 31. Téléphone : la barre du bas, le bandeau et les cartes respirent sans
+   se chevaucher. Les libellés trop longs sont tronqués, jamais superposés. */
+@media(max-width:899px){
+  body[data-mobile-nav="true"]{padding-bottom:calc(112px + env(safe-area-inset-bottom,0px))}
+  .socle-mobile-nav{gap:6px!important}
+  .socle-mobile-nav button{min-width:0;overflow:hidden;gap:2px;padding:4px 0!important;font-size:9px!important;letter-spacing:-.03em!important}
+  .socle-mobile-nav button>span:last-child{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:9px!important;line-height:1.1}
+  .socle-mobile-nav-icon{font-size:17px;line-height:17px}
+  body.socle-v3 .v3-intro .eyebrow,body.socle-v3 #main .heading .eyebrow{display:none!important}
+  #saveStatus{width:100%;max-width:100%;box-sizing:border-box;min-height:16px;padding:2px 8px;justify-content:center;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:9px}
+  .ia-back-to-top{display:none!important}
+  body.socle-v3 #main .heading{margin-bottom:10px}
+  body.socle-v3 #main .heading h1{font-size:22px;line-height:1.12}
+  body.socle-v3 #main .heading p:not(.eyebrow){font-size:12px;margin-top:2px}
+  body.socle-v3 .v3-intro{margin-bottom:10px}
+  body.socle-v3 .v3-intro h1{font-size:22px;line-height:1.12}
+  body.socle-v3 .v3-shortcuts{gap:6px;margin-top:8px}
+  body.socle-v3 .v3-shortcuts .btn{min-height:40px;padding:8px 6px;font-size:11px}
+  body.socle-v3 #main .panel-head{padding:10px 12px}
+  body.socle-v3 #main .official-grid{grid-template-columns:1fr}
+  body.socle-v3 #main .official-grid a{min-height:0;padding:10px}
+  body.socle-v3 #main .official-grid strong{font-size:12px;overflow-wrap:normal;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+}
+
+/* 32. Bureau : la colonne de gauche porte des libellés lisibles, et les
+   en-têtes de page cessent de manger un quart de l'écran. */
+@media(min-width:900px){
+  body.socle-v3{padding-left:188px}
+  body.socle-v3 #nav{width:188px;flex-direction:column;align-items:stretch;padding:16px 10px;gap:1px}
+  body.socle-v3 #nav button[data-nav-route]{display:flex;align-items:center;justify-content:flex-start;gap:0;width:100%;height:38px;min-height:38px;padding:0 8px 0 56px!important;color:var(--sx-muted);font-size:12.5px!important;text-indent:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  body.socle-v3 #nav button[data-nav-route]::before{left:8px;width:24px;font-size:16px;line-height:1;overflow:hidden}
+  body.socle-v3 #nav button[data-nav-route]::after{display:none!important}
+  body.socle-v3 #nav button[data-nav-route].active{color:var(--sx-ink)}
+  body.socle-v3 #nav .v3-nav-group{width:auto;height:auto;margin:14px 10px 4px;padding:0;overflow:visible;border:0;font-size:9px;line-height:1.2;letter-spacing:1.2px}
+  body.socle-v3 #main{padding:16px 24px}
+  body.socle-v3 #main .heading{margin-bottom:12px}
+  body.socle-v3 #main .heading h1{font-size:22px;line-height:1.15}
+  body.socle-v3 #main .heading p:not(.eyebrow){font-size:13px;margin-top:2px}
+  body.socle-v3 #main .heading .eyebrow,body.socle-v3 .v3-intro .eyebrow{display:none}
+  body.socle-v3 .v3-intro h1{font-size:24px;line-height:1.15}
+  body.socle-v3 .v3-intro{margin-bottom:12px}
+  body.socle-v3 #main .panel-head{padding:16px}
+  body.socle-v3 #main .section-heading{margin:12px 0 10px}
+}
+
+/* 33. Accueil : les données d'abord, la météo et les portails juste après. */
+body.socle-v3 #socleMasthead{display:none!important}
+body.socle-v3[data-audit-route="home"] #saveStatus{display:none!important}
+body.socle-v3[data-audit-route="home"] #main{display:flex;flex-direction:column}
+body.socle-v3[data-audit-route="home"] .v3-intro{order:1;display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 14px;align-items:start;margin-bottom:12px}
+body.socle-v3[data-audit-route="home"] .v3-intro>div:first-child{grid-column:1;min-width:0}
+body.socle-v3[data-audit-route="home"] .v3-intro h1{font-size:24px;line-height:1.15;margin:0}
+body.socle-v3[data-audit-route="home"] .home-sub{margin:2px 0 0;color:var(--sx-muted);font-size:12px}
+body.socle-v3[data-audit-route="home"] .v3-intro .v3-shortcuts{grid-column:2;grid-row:1;display:flex;flex-wrap:wrap;justify-content:flex-end;gap:6px;margin:0}
+body.socle-v3[data-audit-route="home"] .home-kpis{grid-column:1/-1;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:4px}
+body.socle-v3[data-audit-route="home"] .home-kpi{background:var(--sx-surface);border:1px solid var(--sx-line);border-radius:10px;padding:10px 12px;min-width:0}
+body.socle-v3[data-audit-route="home"] .home-kpi small{display:block;color:var(--sx-muted);font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+body.socle-v3[data-audit-route="home"] .home-kpi strong{display:block;font-size:22px;line-height:1.1;margin-top:3px}
+body.socle-v3[data-audit-route="home"] .home-kpi em{display:block;font-style:normal;color:var(--sx-muted);font-size:10px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.socle-v3[data-audit-route="home"] .ia-role-head{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap;margin:-1px;padding:0;border:0}
+body.socle-v3[data-audit-route="home"] .ia-attention{order:3;margin-bottom:12px}
+body.socle-v3[data-audit-route="home"] .home-top-grid{order:2;display:grid;grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr);gap:12px;margin-bottom:12px}
+body.socle-v3[data-audit-route="home"] .home-top-grid>:is(.ia-home-weather,.ia-home-portals){margin:0;height:100%}
+body.socle-v3[data-audit-route="home"] .ia-owner-dashboard{order:4;margin-bottom:12px}
+body.socle-v3[data-audit-route="home"] #main .ia-home-portal-mark{background:var(--sx-accent-soft)!important;color:var(--sx-accent-ink)!important}
+body.socle-v3[data-audit-route="home"] .v3-jobs{order:5;margin-bottom:12px}
+body.socle-v3[data-audit-route="home"] :is(.ia-job-canvas-shell,.ia-quick-actions,.ia-screen-purpose){display:none!important}
+@media(max-width:899px){
+  body.socle-v3[data-audit-route="home"] .v3-intro{display:block}
+  body.socle-v3[data-audit-route="home"] .v3-intro .v3-shortcuts{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+  body.socle-v3[data-audit-route="home"] .home-kpis{grid-template-columns:1fr 1fr;margin-top:8px}
+  body.socle-v3[data-audit-route="home"] .home-top-grid{grid-template-columns:1fr;gap:8px}
+  body.socle-v3[data-audit-route="home"] .ia-home-portal-links{grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  body.socle-v3[data-audit-route="home"] .ia-home-portal-links a{grid-template-columns:24px minmax(0,1fr) 10px;gap:6px;min-height:48px;padding:6px}
+  body.socle-v3[data-audit-route="home"] .ia-home-portal-mark{width:24px;height:24px;font-size:8px;border-radius:7px}
+  body.socle-v3[data-audit-route="home"] .v3-jobs{grid-template-columns:1fr 1fr;gap:8px}
+}

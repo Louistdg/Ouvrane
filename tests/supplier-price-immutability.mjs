@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync} from 'node:fs';
+const db=new DatabaseSync(':memory:');db.exec('PRAGMA foreign_keys=ON;CREATE TABLE organizations(id TEXT PRIMARY KEY);CREATE TABLE profiles(id TEXT PRIMARY KEY);INSERT INTO organizations VALUES(\'org\');INSERT INTO profiles VALUES(\'owner\');');
+db.exec(readFileSync(new URL('../drizzle/0054_supplier_price_imports.sql',import.meta.url),'utf8'));
+const insert=db.prepare('INSERT INTO supplier_price_imports VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+const row=['org','import1','supplier1',1,'2026-10-20','test.csv','sha',new Uint8Array([1,2,3]),'{}','[]','operation1','owner','stamp'];insert.run(...row);
+assert.throws(()=>db.prepare("UPDATE supplier_price_imports SET rows_json='changed' WHERE id='import1'").run(),/supplier_price_import_immutable/);
+assert.throws(()=>insert.run(...row.map((v,i)=>i===1?'import2':v)),/UNIQUE/);
+assert.equal(db.prepare('SELECT rows_json FROM supplier_price_imports').get().rows_json,'[]');assert.deepEqual([...db.prepare('SELECT original_bytes FROM supplier_price_imports').get().original_bytes],[1,2,3]);
+assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);db.close();console.log('PASS supplier price SQL: immutable rows, unique import keys/versions, exact original bytes, foreign keys.');

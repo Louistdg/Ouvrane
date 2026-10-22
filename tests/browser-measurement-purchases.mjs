@@ -1,0 +1,75 @@
+import assert from 'node:assert/strict';
+import {connectBrowser,waitForApp} from './helpers/browser-cdp.mjs';
+const base=process.env.SOCLE_TEST_URL,browser=await connectBrowser(base),tab=await browser.createSession(base);
+try{
+ await tab.navigate(base);
+ await tab.evaluate("fetch('/__local-test/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'direction@batinova.example'})})",'login');await tab.reload();await waitForApp(tab);
+ const api=async(path,method='GET',data)=>tab.evaluate(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'content-type':'application/json'},${data===undefined?'':`body:JSON.stringify(${JSON.stringify(data)}),`}}).then(async r=>({status:r.status,data:await r.json()}))`,'api-'+path);
+ const customerResult=await api('/api/customers','POST',{type:'individual',firstName:'Test',lastName:'Mesure',street:'Rue du test',city:'Namur',country:'BE'});assert.equal(customerResult.status,201,JSON.stringify(customerResult));const customer=customerResult.data.customer;
+ assert.equal((await api('/api/measurements/not-in-this-organization')).status,404);
+ const v=await api('/api/quote-visits','POST',{customerId:customer.id,place:'V5 test toiture',contact:'Test',notes:'Jeu isolé',operationKey:'v5-visit-'+Date.now()});assert.equal(v.status,201,JSON.stringify(v));const visitId=v.data.visit.id;
+ const input={planes:[{id:'a',eaveLengthM:'10',developedSlopeM:'4.2',openingsM2:'2'},{id:'b',eaveLengthM:'10',developedSlopeM:'4.2',openingsM2:'2'}],config:{usefulCoverWidthMm:'180',usefulExposureMm:'120',battenSpacingM:'0.3',counterBattenSpacingM:'0.6',slateWastePct:'10',underlayAllowancePct:'10',timberWastePct:'10'},guttersM:'20',flashingsM:'3',unitPrices:{SLATE_PIECES:'1',UNDERLAY:'2',BATTENS:'3',COUNTER_BATTENS:'4',GUTTERS:'5',FLASHINGS:'6'},packages:{UNDERLAY:'10'},vatRate:21};
+ const data={visitId,input,sourceLabel:'Relevé de référence',expectedVersion:0,operationKey:'v5-metre-'+Date.now()};
+ const m=await api('/api/measurements','POST',data);assert.equal(m.status,201,JSON.stringify(m));const measurement=m.data.measurement;assert.equal(measurement.result.areaGrossM2,'84.000');assert.equal(measurement.result.areaNetM2,'80.000');const need=measurement.result.materialNeeds.find(x=>x.code==='UNDERLAY');assert.equal(need.requiredQuantity,'92.400');assert.equal(need.packages,'10');assert.equal(need.orderedQuantity,'100');
+ assert.equal((await api('/api/measurements','POST',data)).data.replayed,true);
+ assert.equal((await api('/api/measurements','POST',{...data,sourceLabel:'Changed'})).status,409);
+ assert.equal((await api('/api/measurements','POST',{...data,operationKey:'other-key-123',expectedVersion:0})).status,409);
+ assert.equal((await api('/api/measurements','POST',{...data,operationKey:'other-key-456',expectedVersion:1,input:{...input,packages:{UNDERLAY:'0'}}})).status,400);
+ const q=await api('/api/quotes','POST',{customerId:customer.id,title:'Test métré',client:'Test',clientAddress:'Namur',date:'2026-10-20',validUntil:'2026-11-20',status:'draft',lines:[{label:'Préparation',qty:1,unit:'forfait',price:10,vat:21}]});assert.equal(q.status,201,JSON.stringify(q));const quote=q.data.quote;
+ assert.equal((await api('/api/quote-visits/'+visitId+'/quote','POST',{quoteId:quote.id})).status,200);
+ const apply={quoteId:quote.id,expectedLinesJson:JSON.stringify(quote.lines)};
+ assert.equal((await api('/api/measurements/'+measurement.id,'POST',{...apply,expectedLinesJson:'[]'})).status,409);
+ assert.equal((await api('/api/measurements/'+measurement.id,'POST',apply)).status,200);
+ assert.equal((await api('/api/measurements/'+measurement.id,'POST',apply)).data.replayed,true);
+ const updated=(await api('/api/quotes/'+quote.id)).data.quote;assert.equal(updated.lines.length,7);assert.match(updated.lines[1].description,new RegExp(measurement.id));
+ assert.equal((await api('/api/measurements','POST',{...data,sourceDocumentId:'foreign-document',expectedVersion:1,operationKey:'foreign-doc-123'})).status,404);
+ const version2=await api('/api/measurements','POST',{...data,expectedVersion:1,operationKey:'version-two-'+Date.now()});assert.equal(version2.status,201);assert.equal(version2.data.measurement.version,2);
+ assert.equal((await api('/api/quotes/'+quote.id,'PUT',{...updated,status:'accepted',id:undefined,createdAt:undefined,updatedAt:undefined})).status,200);
+ assert.equal((await api('/api/measurements/'+version2.data.measurement.id,'POST',{quoteId:quote.id,expectedLinesJson:JSON.stringify(updated.lines)})).status,409);
+ await tab.evaluate(`loadQuoteVisits({quiet:true})`,'refresh-visits');
+ await tab.evaluate(`openQuoteDraftFolder(${JSON.stringify(visitId)})`,'open-visit-folder');
+ assert.equal(await tab.evaluate("[...document.querySelectorAll('#modalbody button')].some(x=>x.textContent==='Métrés et besoins')",'entry-point'),true);
+ for(const width of [1440,390]){
+  await tab.call('Emulation.setDeviceMetricsOverride',{width,height:950,deviceScaleFactor:1,mobile:width<500});
+  await tab.evaluate(`openMeasurementDesk(${JSON.stringify(visitId)})`,'open-measurement-desk');
+  assert.equal(await tab.evaluate("!!document.querySelector('#measurementDesk .tabulator')",'table'),true);
+  assert.equal(await tab.evaluate("document.documentElement.scrollWidth>innerWidth",'overflow'),false);
+  await tab.call('Page.captureScreenshot',{format:'png'}).then(async shot=>{const {writeFileSync}=await import('node:fs');writeFileSync(new URL('./measurement-'+width+'.png',import.meta.url),Buffer.from(shot.data,'base64'))});
+ }
+ await tab.evaluate("saveMeasurementDesk()",'save-from-ui');
+ assert.equal((await api('/api/measurements?visitId='+visitId)).data.measurements.length,3);
+ await tab.reload();await waitForApp(tab);assert.equal((await api('/api/measurements?visitId='+visitId)).data.measurements.length,3);
+ const warehouse=await api('/api/stock-locations','POST',{name:'V5 test dépôt '+Date.now(),type:'warehouse'});assert.equal(warehouse.status,201,JSON.stringify(warehouse));
+ const stock=await api('/api/stock-items','POST',{name:'Sous-toiture de référence V5',reference:'TEST-UNDERLAY-V5',operationKey:'stock-create-'+Date.now(),unit:'m2',quantity:20,locationId:warehouse.data.id,unitCost:2});assert.equal(stock.status,201,JSON.stringify(stock));
+ const catalog=await api('/api/measurements/'+measurement.id+'/procurement');assert.equal(catalog.status,200,JSON.stringify(catalog));assert.ok(catalog.data.suppliers.length,'Supplier fixture missing');
+ const supplierId=catalog.data.suppliers[0].id;
+ const prep={supplierId,vatRate:21,lines:[{code:'UNDERLAY',stockItemId:stock.data.id,quantity:'80',unitPrice:'2.50'}]};
+ const preview=await api('/api/measurements/'+measurement.id+'/procurement/preview','POST',prep);assert.equal(preview.status,200,JSON.stringify(preview));assert.equal(preview.data.comparison[0].available,'20');assert.equal(preview.data.comparison[0].suggestedShortfall,'80');assert.equal(preview.data.stockReserved,false);
+ assert.equal((await api('/api/measurements/'+measurement.id+'/procurement/preview','POST',{...prep,lines:[{...prep.lines[0],quantity:'81'}]})).status,400);
+ assert.equal((await api('/api/measurements/'+measurement.id+'/procurement/preview','POST',{...prep,lines:[{...prep.lines[0],stockItemId:'foreign-stock'}]})).status,404);
+ assert.equal((await api('/api/measurements/'+measurement.id+'/procurement/preview','POST',{...prep,lines:[{...prep.lines[0],code:'SLATE_PIECES'}]})).status,400);
+ const endpoint='/api/measurements/'+measurement.id+'/procurement/order';
+ assert.equal((await api(endpoint,'POST',{...prep,previewSignature:'tampered'})).status,409);
+ const movement=await api('/api/stock-items/'+stock.data.id+'/movements','POST',{type:'perte',quantity:1,date:'2026-10-20',reason:'Test de stock concurrent',operationKey:'stock-v5-'+Date.now(),sourceLocationId:warehouse.data.id});assert.equal(movement.status,201,JSON.stringify(movement));
+ assert.equal((await api(endpoint,'POST',{...prep,previewSignature:preview.data.previewSignature})).status,409);
+ const refreshed=await api('/api/measurements/'+measurement.id+'/procurement/preview','POST',prep);assert.equal(refreshed.status,200);
+ const create={...prep,previewSignature:refreshed.data.previewSignature};const order=await api(endpoint,'POST',create);assert.equal(order.status,201,JSON.stringify(order));assert.equal(order.data.order.status,'brouillon');assert.equal(order.data.order.lines[0].quantity,80);assert.equal(order.data.order.lines[0].unitPrice,2.5);assert.equal(order.data.order.measurementSource.measurementId,measurement.id);
+ assert.equal((await api(endpoint,'POST',create)).data.replayed,true);
+ const orders=await api('/api/purchase-orders');assert.equal(orders.data.orders.filter(x=>x.id===order.data.order.id).length,1);
+ const after=await api('/api/measurements/'+measurement.id+'/procurement');assert.equal(after.data.stock.find(x=>x.id===stock.data.id).quantity,19);assert.equal(after.data.stock.find(x=>x.id===stock.data.id).reserved,0);
+ for(const width of [1440,390]){
+  await tab.call('Emulation.setDeviceMetricsOverride',{width,height:950,deviceScaleFactor:1,mobile:width<500});
+  await tab.evaluate(`openMeasurementDesk(${JSON.stringify(visitId)})`,'purchase-source');await tab.evaluate('openMeasurementPurchase()','open-purchase');
+  assert.equal(await tab.evaluate("!!document.querySelector('#measurementPurchase')",'purchase-ui'),true);
+  assert.equal(await tab.evaluate('document.documentElement.scrollWidth>innerWidth','purchase-overflow'),false);
+  const {writeFileSync}=await import('node:fs');const shot=await tab.call('Page.captureScreenshot',{format:'png'});writeFileSync(new URL('./purchase-'+width+'.png',import.meta.url),Buffer.from(shot.data,'base64'));
+ }
+ await tab.evaluate(`(()=>{const root=document.querySelector('#measurementPurchase');root.querySelector('#measurementSupplier').value=${JSON.stringify(supplierId)};root.querySelector('#measurementPurchaseVat').value='21';const row=root.querySelector('[data-need-code="UNDERLAY"]');const checkbox=row.querySelector('[data-need-selected]');checkbox.click();row.querySelector('[data-stock-id]').value=${JSON.stringify(stock.data.id)};row.querySelector('[data-order-quantity]').value='80';row.querySelector('[data-order-price]').value='2,50';return true})()`,'fill-purchase-form');
+ await tab.evaluate('previewMeasurementPurchase()','preview-from-ui');assert.equal(await tab.evaluate("document.querySelector('#measurementCreateOrder').disabled",'create-enabled'),false);
+ await tab.evaluate('createMeasurementOrder()','create-from-ui');assert.equal(await tab.evaluate("document.querySelector('#measurementPurchasePreview').textContent.includes('Brouillon enregistré')",'order-ui-success'),true);
+ const uiOrders=await api('/api/purchase-orders');assert.ok(uiOrders.data.orders.some(x=>x.measurementSource?.measurementId===version2.data.measurement.id)||uiOrders.data.orders.filter(x=>x.measurementSource?.visitId===visitId).length===2);
+ console.log('PASS stock-to-purchase: server stock comparison, explicit quantities/prices, packing checks, stale-stock signature, unique draft order, provenance, unchanged stock, PC/mobile.');
+ await tab.evaluate("fetch('/__local-test/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:'anthony.simon@batinova.example'})})",'worker-login');
+ assert.equal((await api('/api/measurements?visitId='+visitId)).status,403);assert.equal((await api('/api/measurements/'+measurement.id+'/procurement')).status,403);
+ console.log('PASS measurement links: server calculation, packs, immutable versions, duplicate/conflict handling, draft-only quote transfer, persistence, worker denial, Tabulator PC/mobile.');
+}finally{await tab.close();await browser.close()}

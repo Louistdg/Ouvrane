@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OUVRANE — Votre entreprise en mouvement</title>
+  <meta name="description" content="Votre entreprise, ses dossiers et ses échéances dans un même espace.">
+  <meta name="theme-color" content="#0e1b1d">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="OUVRANE">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23163240'/%3E%3Cpath d='M8 10h16v5H13v3h11v5H8v-5h11v-3H8z' fill='%236fe0cb'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="offline.css"><link rel="stylesheet" href="design-tokens.css">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="organization.css">
+  <link rel="stylesheet" href="planning.css">
+  <link rel="stylesheet" href="ia-a-ui.css">
+  <link rel="preload" href="canvas-jobs.css" as="style">
+  <link rel="stylesheet" href="ui-foundation.css">
+  <link rel="stylesheet" href="stock-catalog-v2.css">
+  <link rel="stylesheet" href="stock-barcode.css">
+  <link rel="stylesheet" href="profile-avatar.css">
+  <link rel="stylesheet" href="mobile-nav.css">
+  <link rel="stylesheet" href="v3.css">
+  <link rel="stylesheet" href="v3-themes.css">
+  <link rel="stylesheet" href="quote-roofing-metre.css">
+  <link rel="stylesheet" href="document-triage.css">
+  <link rel="stylesheet" href="task-board.css"><link rel="stylesheet" href="task-spatial-desk.css">
+  <link rel="stylesheet" href="field-journal.css">
+  <link rel="stylesheet" href="audit-release.css"><link rel="stylesheet" href="mobile-audit.css"><link rel="stylesheet" href="design-system.css">
+<link rel="stylesheet" href="team-composer.css">
+<link rel="stylesheet" href="v4.css">
+<link rel="stylesheet" href="tabulator.css"><link rel="stylesheet" href="measurement-desk.css"><link rel="stylesheet" href="plans.css"><link rel="stylesheet" href="work-packets.css"><link rel="stylesheet" href="task-preparations.css"><link rel="stylesheet" href="task-stock.css"><link rel="stylesheet" href="assignment-assets.css"><link rel="stylesheet" href="commercial-directory.css"><link rel="stylesheet" href="home-layout.css"></head>
+<body class="socle-v3 socle-loading" data-socle-theme="moss" data-v3-theme="petrole" data-mobile-layout="standard">
+<script>try{var socleInitialTheme=localStorage.getItem("socle-v3.theme");if(["atelier","ardoise","terre","nuit","graphite","carmin","contraste","beton","lin","ciel","foret","bordeaux","cuivre","encre","craie","comete","petrole","petrole-signature","charbon-ivoire","gris-relief"].includes(socleInitialTheme)&&localStorage.getItem("socle-v3.theme-choice")==="explicit")document.body.dataset.v3Theme=socleInitialTheme;}catch{}</script>
+  <header class="topbar"><a class="brand" href="#" onclick="navigate('home');return false"><span class="brandmark">o</span>ouvrane<span class="branddot">.</span></a><span class="workspace"><select id="organizationSwitcher" aria-label="Entreprise active" onchange="selectSocleOrganization(this.value)" hidden></select><span id="organizationLabel">Chargement…</span><small id="organizationSwitcherStatus" role="status" aria-live="polite" hidden></small><small>ESPACE ENTREPRISE</small></span><div class="global-search"><label class="sr-only" for="globalSearch">Rechercher partout</label><input id="globalSearch" type="search" placeholder="Rechercher partout…" autocomplete="off" oninput="searchEverywhere(this.value)" onfocus="searchEverywhere(this.value)"><kbd class="sx-search-kbd">Ctrl K</kbd></div><button type="button" class="socle-mobile-search-toggle" aria-label="Rechercher partout">⌕</button><button class="quick-create" onclick="quickCreateMenu()" aria-label="Créer rapidement"><span aria-hidden="true">+</span><span class="quick-create-label">Créer</span></button><div class="header-right"><span class="demo">Espace de travail · exemples fictifs</span><div class="socle-theme-picker"><button id="socleThemeButton" class="theme-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="socleThemeMenu" title="Changer les couleurs">Thème</button><div id="socleThemeMenu" class="theme-menu" role="menu" hidden></div></div><span class="avatar">LM</span></div></header>
+  <nav id="nav" class="topnav" aria-label="Espace entreprise"></nav>
+  <div id="saveStatus" role="status" aria-live="polite">Chargement de votre entreprise…</div>
+  <div id="socleMasthead" class="socle-masthead" role="region" aria-label="Présentation d'OUVRANE"><strong>Ouvrane, le point d’appui de votre entreprise.</strong><span>Vos devis, chantiers, équipes, photos et suivis réunis au même endroit.</span></div>
+  <main id="main"><div class="empty" role="status">Chargement de votre entreprise…</div></main>
+  <footer><span>OUVRANE · Votre entreprise en mouvement</span><span>Dossiers sauvegardés · photos temporaires · règles non vérifiées</span></footer>
+  <dialog id="modal"><div id="modalbody"></div></dialog><div id="toast" role="status"></div>
+  <script defer src="/offline.js"></script><script defer src="/jobs-order.js"></script><script defer src="/job-tabs-order.js"></script><script defer src="/production-runtime.js"></script><script defer src="workspace-config.js"></script><script defer src="error-monitor.js"></script><script defer src="app.js"></script><script defer src="cockpit.js"></script><script defer src="admin.js"></script><script defer src="business.js"></script><script defer src="refinement.js"></script><script defer src="permissions.js"></script><script defer src="organization.js"></script><script defer src="archives.js"></script><script defer src="realistic-demo.js"></script><script defer src="workflow-improvements.js"></script><script defer src="server-modules.js"></script><script defer src="field-workflows.js"></script><script defer src="quick-intervention.js"></script><script defer src="free-entry.js"></script><script defer src="contacts.js"></script><script defer src="quote-preproject.js"></script><script defer src="blank-workspace.js"></script><script defer src="partners.js"></script><script defer src="onboarding.js"></script><script defer src="procurement.js"></script><script defer src="local-test-auth.js"></script><script defer src="field-server.js"></script><script defer src="planning.js"></script><script defer src="planning-drag.js"></script><script defer src="documents-server.js"></script><script defer src="quote-visit-capture.js"></script><script defer src="roofing-metre.js"></script><script defer src="quote-roofing-metre.js"></script><script defer src="supplier-invoice-reconciliation.js"></script><script defer src="supplier-allocations.js"></script><script defer src="supplier-invoice-pdf.js"></script><script defer src="project-hub.js"></script><script defer src="field-portal.js"></script><script defer src="ia-a-ui.js"></script><script defer src="canvas-jobs.js"></script><script defer src="ui-foundation.js"></script><script defer src="stock-catalog-v2.js"></script><script defer src="stock-barcode.js"></script><script defer src="delivery-scans.js"></script><script defer src="navigation-registry.js"></script><script defer src="profile-avatar.js"></script><script defer src="mobile-nav.js"></script>
+  <script defer src="v3-themes.js"></script><script defer src="v3-money.js"></script><script defer src="v3.js"></script><script defer src="document-triage.js"></script><script defer src="field-journal.js"></script>
+  <script defer src="audit-release.js"></script>
+  <script defer src="task-board.js"></script><script defer src="task-spatial-desk.js"></script><script defer src="alert-confirmation.js"></script>
+  <script defer src="document-folders.js"></script>
+  <script defer src="home-compact.js"></script>
+  <script defer src="ui-icons.js"></script>
+  <script defer src="breadcrumb.js"></script>
+  <script defer src="form-kit.js"></script>
+  <script defer src="table-tools.js"></script>
+  <script defer src="toast-action.js"></script>
+  <script defer src="feedback.js"></script>
+  <script defer src="trust.js"></script>
+  <script defer src="shortcuts.js"></script>
+  <script defer src="/omnisearch.js"></script>
+<script defer src="team-composer.js"></script>
+<script defer src="v4.js"></script>
+<script src="tabulator.js" defer></script><script src="measurement-desk.js" defer></script><script src="measurement-procurement.js" defer></script><script src="supplier-imports.js" defer></script><script src="plan-geometry.js" defer></script><script src="plans.js" defer></script><script src="work-packets.js" defer></script><script src="task-preparations.js" defer></script><script src="measurement-tasks.js" defer></script><script src="task-stock.js" defer></script><script src="assignment-assets.js" defer></script><script src="commercial-directory.js" defer></script><script src="home-layout.js" defer></script></body>
+</html>

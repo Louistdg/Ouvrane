@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {existsSync,readFileSync} from 'node:fs';
+import {measurementTaskMaterials} from '../worker/measurement-tasks.js';
+const needs=[{code:'UNDERLAY',label:'Sous-toiture',requiredQuantity:'92.400',orderedQuantity:'100',unit:'m2',unitPrice:1234}];
+assert.deepEqual(measurementTaskMaterials(needs,['UNDERLAY'],'required'),[{name:'Sous-toiture',quantity:92.4,unit:'m2'}]);
+assert.deepEqual(measurementTaskMaterials(needs,['UNDERLAY'],'packaged'),[{name:'Sous-toiture',quantity:100,unit:'m2'}]);
+for(const [codes,basis] of [[[],'required'],[['UNDERLAY','UNDERLAY'],'required'],[['unknown'],'required'],[['UNDERLAY'],'net']])assert.throws(()=>measurementTaskMaterials(needs,codes,basis));
+const db=new DatabaseSync(':memory:');
+db.exec(`PRAGMA foreign_keys=ON;
+CREATE TABLE organizations(id TEXT PRIMARY KEY); CREATE TABLE profiles(id TEXT PRIMARY KEY);
+CREATE TABLE project_tasks(id TEXT PRIMARY KEY,organization_id TEXT,project_id TEXT,materials_json TEXT,archived_at TEXT);
+CREATE TABLE quote_site_visits(organization_id TEXT,id TEXT,quote_id TEXT,PRIMARY KEY(organization_id,id));
+CREATE TABLE quotes_server(id TEXT PRIMARY KEY,organization_id TEXT,project_id TEXT,archived_at TEXT);
+CREATE TABLE measurement_snapshots(organization_id TEXT,id TEXT,visit_id TEXT,version INTEGER,PRIMARY KEY(organization_id,id));
+INSERT INTO organizations VALUES('org'),('other'); INSERT INTO profiles VALUES('boss');
+INSERT INTO quote_site_visits VALUES('org','visit','quote'); INSERT INTO quotes_server VALUES('quote','org','project',NULL);
+INSERT INTO measurement_snapshots VALUES('org','m1','visit',1);
+INSERT INTO project_tasks VALUES('task','org','project','[{"name":"Sous-toiture","quantity":92.4,"unit":"m2"}]',NULL);
+INSERT INTO project_tasks VALUES('foreign-task','other','project','[]',NULL);`);
+const migration=new URL('../drizzle/0058_measurement_tasks.sql',import.meta.url);
+if(existsSync(migration))db.exec(readFileSync(migration,'utf8'));
+assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='task_measurement_sources'").get(),'No durable, atomic measurement → task provenance');
+const materials='[{"name":"Sous-toiture","quantity":92.4,"unit":"m2"}]';
+const insert=db.prepare('INSERT INTO task_measurement_sources(organization_id,task_id,measurement_id,visit_id,quote_id,project_id,expected_head_version,materials_json,source_json,operation_key,request_json,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+const link=(task='task',head=1,project='project',m=materials,op='operation-key')=>insert.run('org',task,'m1','visit','quote',project,head,m,'{}',op,'request','boss','now');
+assert.throws(()=>link('foreign-task'),/measurement_task_stale/);
+assert.throws(()=>link('task',0),/measurement_task_stale/);
+assert.throws(()=>link('task',1,'wrong'),/measurement_task_stale/);
+assert.throws(()=>link('task',1,'project','[]'),/measurement_task_stale/);
+db.exec("UPDATE quotes_server SET project_id='moved'");assert.throws(()=>link(),/measurement_task_stale/);db.exec("UPDATE quotes_server SET project_id='project'");
+db.exec("INSERT INTO measurement_snapshots VALUES('org','m2','visit',2)");assert.throws(()=>link(),/measurement_task_stale/);
+link('task',2);
+assert.throws(()=>db.exec('UPDATE task_measurement_sources SET source_json=\'[]\''),/measurement_task_immutable/);
+assert.throws(()=>db.exec('DELETE FROM task_measurement_sources'),/measurement_task_immutable/);
+// A failed provenance guard rolls back the task as well, not just the link.
+db.exec('BEGIN');db.exec("INSERT INTO project_tasks VALUES('orphan','org','project','[]',NULL)");
+try{link('orphan',2,'wrong-project','[]','other-operation');assert.fail('must fail')}catch(e){assert.match(String(e),/measurement_task_stale/);db.exec('ROLLBACK')}
+assert.equal(db.prepare("SELECT count(*) n FROM project_tasks WHERE id='orphan'").get().n,0);
+// Later edits and new measurements must never rewrite the saved origin.
+db.exec("UPDATE project_tasks SET materials_json='[]' WHERE id='task'; INSERT INTO measurement_snapshots VALUES('org','m3','visit',3)");
+assert.equal(db.prepare('SELECT materials_json FROM task_measurement_sources').get().materials_json,materials);
+assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);db.close();
+console.log('PASS measurement/task source: tenant and project guard, source/head race, immutable origin, transaction rollback, subsequent task edits preserve source.');
