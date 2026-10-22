@@ -1,0 +1,7 @@
+# OUVRANE — proxy vers l'application Node.js (127.0.0.1:3100)
+# Ancien redirect 302 temporaire sauvegarde dans .htaccess.bak-302
+# DirectoryIndex pour que "/" arrive en "/index.html" (et non "/index.php")
+DirectoryIndex index.html
+RewriteEngine On
+RewriteCond %{REQUEST_URI} !^/\.well-known(?:/|$) [NC]
+RewriteRule ^(.*)$ http://127.0.0.1:3100/$1 [P,L]
