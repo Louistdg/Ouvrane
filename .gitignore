@@ -1,6 +1,7 @@
 # Local simulation data; the immutable snapshot remains inside reference/.
 /node_modules/
 data/
+dist/
 tests/
 !tests/
 tests/*
