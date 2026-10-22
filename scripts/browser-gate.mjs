@@ -16,6 +16,7 @@ const browserSuites=[
  {name:'browser-job-finance-preservation.mjs'},
   {name:'browser-job-edge-cases.mjs'},
   {name:'browser-job-account-switch.mjs'},
+  {name:'browser-job-journey-21.mjs'},
  {name:'browser-independent-customers.mjs'},
  {name:'browser-contact-lifecycle.mjs'},
  {name:'browser-quote-create-retry.mjs'},
