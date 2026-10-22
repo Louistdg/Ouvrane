@@ -12,7 +12,7 @@ const forbiddenParts = new Set(['.git','node_modules','data','tests','reports','
 const licenseNames = ['LICENSE','LICENCE','LICENSE.md','LICENCE.md','LICENSE.txt','LICENCE.txt'];
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const inside = (parent, child) => {const path=relative(parent,child);return path===''||(!isAbsolute(path)&&path!=='..'&&!path.startsWith('..'+sep));};
-const fail = message => {throw Error('OUVRANE V5 staging: '+message);};
+const fail = message => {throw Error('OUVRANE staging: '+message);};
 
 // Read static JS dependency declarations without evaluating source or requiring
 // npm packages. Comments, regex bodies and template contents cannot add files.
@@ -144,7 +144,7 @@ export function stageV5({source=repository,target}={}) {
     }
   }
   const ordered=[...files.entries()].sort(([a],[b])=>a.localeCompare(b,'en'));
-  const manifest={version:1,product:'OUVRANE V5',createdAt:new Date().toISOString(),node:process.version,source:sourceRoot,entrypoints:{build:'scripts/build.mjs',start:cmd[1],seed},files:ordered.map(([path,value])=>({path,bytes:value.bytes.length,sha256:hash(value.bytes)}))};
+  const manifest={version:1,product:'OUVRANE',createdAt:new Date().toISOString(),node:process.version,source:sourceRoot,entrypoints:{build:'scripts/build.mjs',start:cmd[1],seed},files:ordered.map(([path,value])=>({path,bytes:value.bytes.length,sha256:hash(value.bytes)}))};
   manifest.fileCount=manifest.files.length;manifest.totalBytes=manifest.files.reduce((sum,file)=>sum+file.bytes,0);
   mkdirSync(dirname(targetRoot),{recursive:true});let created=false;
   try{

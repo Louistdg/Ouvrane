@@ -232,7 +232,7 @@ if(typeof baseInvoiceForm==='function')globalThis.invoiceForm=function(){
  return result;
 };
 function boot(){
- var brand=document.querySelector('.brand');if(brand){var label=brand.querySelector('.v3-version,.v4-version');if(!label){label=document.createElement('span');brand.append(label)}brand.querySelectorAll('.v3-version,.v4-version').forEach(function(other){if(other!==label)other.remove()});label.classList.add('v4-version');label.textContent='V5';label.title='OUVRANE'}enhance();
+ var brand=document.querySelector('.brand');if(brand){var label=brand.querySelector('.v3-version,.v4-version');if(!label){label=document.createElement('span');brand.append(label)}brand.querySelectorAll('.v3-version,.v4-version').forEach(function(other){if(other!==label)other.remove()});label.classList.add('v4-version');label.textContent='';label.title='OUVRANE'}enhance();
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
