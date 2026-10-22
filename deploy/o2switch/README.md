@@ -17,8 +17,18 @@ les fichiers d'exploitation réellement utilisés sur `ouvrane.be`.
     └── scripts/
         ├── o2switch-start.mjs   (charge .env puis v5-start.mjs)
         ├── o2switch-watchdog.sh (relance l'app si /health ne répond pas)
-        └── o2switch-backup.sh   (sauvegarde SQLite quotidienne)
+        ├── o2switch-backup.sh   (sauvegarde SQLite quotidienne)
+        └── o2switch-create-member.sh (crée un compte TEAM_LEAD/WORKER/ACCOUNTING)
 ```
+
+## Créer un compte (secrétariat, chef d'équipe, ouvrier)
+
+L'envoi des e-mails d'invitation n'est pas configuré sur l'hébergement : le propriétaire
+ne peut pas envoyer de lien depuis l'interface. `o2switch-create-member.sh <email> <prénom>
+<nom> <ACCOUNTING|TEAM_LEAD|WORKER> <mot de passe>` écrit l'invitation en base puis laisse
+l'application créer le compte via `POST /auth/activate` (profil, adhésion, hachage scrypt,
+audit produits par le code applicatif). L'appel exige l'en-tête `Origin` de confiance
+(`SOCLE_PUBLIC_URL`), sinon il répond `403 Origin refused`.
 
 ## Installation (résumé)
 
