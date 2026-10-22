@@ -22,7 +22,7 @@ if(process.env.SOCLE_V3_PROVISION_OWNER==='1'){
    const stamp=new Date().toISOString(),org=randomUUID(),owner=randomUUID();
    db.exec('BEGIN IMMEDIATE');
    try{
-    db.prepare('INSERT INTO organizations(id,name,created_at,updated_at) VALUES(?,?,?,?)').run(org,'SOCLE V3 · Atelier de recherche',stamp,stamp);
+    db.prepare('INSERT INTO organizations(id,name,created_at,updated_at) VALUES(?,?,?,?)').run(org,'OUVRANE V3 · Atelier de recherche',stamp,stamp);
     for(const code of ['OWNER','TEAM_LEAD','WORKER','ACCOUNTING'])db.prepare('INSERT INTO roles(id,organization_id,code,name,created_at) VALUES(?,?,?,?,?)').run(code+'-'+org,org,code,code,stamp);
     db.prepare('INSERT INTO profiles(id,email,first_name,last_name,created_at,updated_at) VALUES(?,?,?,?,?,?)').run(owner,email,'Louis','Masson',stamp,stamp);
     db.prepare('INSERT INTO organization_members(id,organization_id,user_id,role_id,status,joined_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)').run(randomUUID(),org,owner,'OWNER-'+org,'active',stamp,stamp,stamp);
@@ -30,7 +30,7 @@ if(process.env.SOCLE_V3_PROVISION_OWNER==='1'){
    }catch(error){db.exec('ROLLBACK');throw error;}
    await provisionCredential(db,{userId:owner,password,secret:config.sessionSecret});
    writeFileSync(marker,JSON.stringify({organizationId:org,userId:owner,provisionedAt:stamp}),{mode:0o600});
-   console.log('SOCLE V3: explicit owner provisioned in the separate database.');
+   console.log('OUVRANE V3: explicit owner provisioned in the separate database.');
   }finally{storage.close();}
  }
 }

@@ -27,8 +27,8 @@ const snapshotOrg=(path,organizationId)=>{
     return snapshot;
   }finally{db.close()}
 };
-const baseDb=new DatabaseSync(outputPath),baseTenant=baseDb.prepare("SELECT id FROM organizations WHERE name='Socle.Simu.V2'").get()?.id;
-if(!baseTenant){baseDb.close();throw Error('La copie locale ne contient pas Socle.Simu.V2.');}
+const baseDb=new DatabaseSync(outputPath),baseTenant=baseDb.prepare("SELECT id FROM organizations WHERE name='Ouvrane.Simu.V2'").get()?.id;
+if(!baseTenant){baseDb.close();throw Error('La copie locale ne contient pas Ouvrane.Simu.V2.');}
 const beforeExisting=snapshotOrg(outputPath,baseTenant);
 const authSnapshot={};
 for(const table of ['local_test_sessions','production_credentials','production_sessions'])authSnapshot[table]=baseDb.prepare(`SELECT * FROM "${table}" ORDER BY rowid`).all().map(row=>Object.fromEntries(Object.entries(row)));

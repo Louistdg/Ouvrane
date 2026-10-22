@@ -29,7 +29,7 @@ const organizationId='org-local-owner';
 const scriptCode='BATINOVA_SCRIPT_2';
 const scriptVersion=2;
 const workspaceRow=database.prepare('SELECT payload,revision FROM organization_workspace_state WHERE organization_id=?').get(organizationId);
-if(!workspaceRow)throw Error('BatiNova introuvable dans organization_workspace_state. Lancez d’abord SOCLE local sur la base BatiNova.');
+if(!workspaceRow)throw Error('BatiNova introuvable dans organization_workspace_state. Lancez d’abord OUVRANE local sur la base BatiNova.');
 const initialState=JSON.parse(workspaceRow.payload);
 if(!/BatiNova/i.test(initialState.company?.name||''))throw Error('La base locale active ne correspond pas à BatiNova.');
 

@@ -93,7 +93,7 @@ function options(){
     const maximum=name==='runs'?Number.MAX_SAFE_INTEGER:65535;
     if(!Number.isSafeInteger(values[name])||values[name]<1||values[name]>maximum)throw new Error('Option hors limites : --'+name);
   }
-  if(values.port===values['cdp-port'])throw new Error('Les ports SOCLE et CDP doivent être distincts.');
+  if(values.port===values['cdp-port'])throw new Error('Les ports OUVRANE et CDP doivent être distincts.');
   return values;
 }
 
@@ -246,7 +246,7 @@ async function runMultiOrgBrowserTest(suiteName,index,env,children,runDirectory)
   const server=startLogged(process.execPath,[join(root,'scripts','local.mjs'),'--port='+port,'--db-path='+databasePath],join(artifactsPath,'multi-org-serveur-'+index+'.log'));
   children.push(server);
   try{
-    await waitForHttp(isolatedBase+'/',server,'SOCLE local multi-organisation',60000);
+    await waitForHttp(isolatedBase+'/',server,'OUVRANE local multi-organisation',60000);
     await runTest(suiteName,index,{...env,SOCLE_TEST_URL:isolatedBase},children);
   }finally{
     await stop(server);
@@ -286,7 +286,7 @@ async function run(index,configuration,chrome,originalHash){
     if(copyHash!==originalHash)throw new Error('La copie jetable diffère de la candidate avant le passage '+index+'.');
     const server=startLogged(process.execPath,[join(root,'scripts','local.mjs'),'--port='+configuration.port,'--db-path='+copyPath],join(artifactsPath,'serveur-'+index+'.log'));
     children.push(server);
-    await waitForHttp(baseUrl+'/',server,'SOCLE local',300000);
+    await waitForHttp(baseUrl+'/',server,'OUVRANE local',300000);
     checkInterrupted();
     const browser=startLogged(chrome,[
       '--headless=new','--no-sandbox','--disable-dev-shm-usage','--no-first-run','--no-default-browser-check',

@@ -219,7 +219,7 @@ server.on('error', error => {
   process.exitCode = 1;
 });
 server.listen(port, lanAddresses.length ? '0.0.0.0' : host, () => {
-  console.log(`Socle est prêt : ${address}`);
+  console.log(`Ouvrane est prêt : ${address}`);
   for (const ip of lanAddresses) console.log(`Téléphone sur le même Wi-Fi : http://${ip}:${port}/`);
   console.log(`Les données sont enregistrées dans ${databasePath}`);
   console.log('Fermez cette fenêtre pour arrêter le site.');

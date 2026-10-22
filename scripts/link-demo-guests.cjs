@@ -31,7 +31,7 @@ const {randomUUID,createHash}=require('node:crypto');
    const hr=db.prepare('SELECT * FROM hr_people WHERE organization_id=? AND id=?').get(org,String(personId));
    if(hr&&hr.source!=='demo_test_account')throw Error('Existing HR person must not be overwritten');
    if(!hr)db.prepare('INSERT INTO hr_people(organization_id,id,display_name,role_title,category,active,source,created_at,updated_at) VALUES(?,?,?,?,?,1,?,?,?)').run(org,String(personId),name,role,'Ouvrier','demo_test_account',stamp,stamp);
-   if(!member.person_id){db.prepare('UPDATE organization_members SET person_id=?,updated_at=? WHERE id=? AND person_id IS NULL').run(String(personId),stamp,member.id);linked++;db.prepare('INSERT INTO audit_logs(id,organization_id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES(?,?,?,?,?,?,?,?)').run('audit-'+randomUUID(),org,owner.id,'member.demo_person_linked','organization_member',member.id,JSON.stringify({personId,accountId:a.id,release:'pub socle V3'}),stamp);}
+   if(!member.person_id){db.prepare('UPDATE organization_members SET person_id=?,updated_at=? WHERE id=? AND person_id IS NULL').run(String(personId),stamp,member.id);linked++;db.prepare('INSERT INTO audit_logs(id,organization_id,user_id,action,entity_type,entity_id,new_values,created_at) VALUES(?,?,?,?,?,?,?,?)').run('audit-'+randomUUID(),org,owner.id,'member.demo_person_linked','organization_member',member.id,JSON.stringify({personId,accountId:a.id,release:'pub ouvrane V3'}),stamp);}
   }
   for(let i=0;i<2;i++){
    const teamId=920001+i,name='Équipe de test '+(i+1),members=[910001+i,910003+i];

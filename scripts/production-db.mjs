@@ -4,14 +4,14 @@ import {dirname,join,resolve} from 'node:path';
 
 function assertIntegrity(database){
   if(Number(database.prepare('PRAGMA foreign_keys').get().foreign_keys)!==1){
-    throw Error('SOCLE production: les contraintes de clés étrangères sont désactivées.');
+    throw Error('OUVRANE production: les contraintes de clés étrangères sont désactivées.');
   }
   if(database.prepare('PRAGMA foreign_key_check').all().length){
-    throw Error('SOCLE production: violation de clé étrangère dans la base.');
+    throw Error('OUVRANE production: violation de clé étrangère dans la base.');
   }
   const integrity=database.prepare('PRAGMA integrity_check').all();
   if(integrity.length!==1||integrity[0].integrity_check!=='ok'){
-    throw Error('SOCLE production: intégrité SQLite invalide.');
+    throw Error('OUVRANE production: intégrité SQLite invalide.');
   }
 }
 
@@ -26,7 +26,7 @@ function transaction(database,operation){
   }catch(error){
     try{database.exec('ROLLBACK');}
     catch(rollbackError){
-      throw new AggregateError([error,rollbackError],'SOCLE production: échec de transaction et du rollback.',{cause:error});
+      throw new AggregateError([error,rollbackError],'OUVRANE production: échec de transaction et du rollback.',{cause:error});
     }
     throw error;
   }
@@ -66,7 +66,7 @@ function createAdapter(database){
     if(typeof sql!=='string'||!sql.trim())throw TypeError('Requête SQL obligatoire.');
     const command=sql.replace(/^(?:\s|;|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*/,'').match(/^[A-Za-z]+/)?.[0].toUpperCase();
     if(['BEGIN','COMMIT','END','ROLLBACK','SAVEPOINT','RELEASE'].includes(command)){
-      throw Error('SOCLE production: les transactions SQL sont gérées par DB.batch.');
+      throw Error('OUVRANE production: les transactions SQL sont gérées par DB.batch.');
     }
     const data={sql,values:Object.freeze(values.map(copyBinding))};
     const statement=Object.freeze({
@@ -107,7 +107,7 @@ export function openProductionDatabase({databasePath,migrationsDirectory}={}){
   const migrations=readdirSync(migrationsPath,{withFileTypes:true})
     .filter(entry=>entry.isFile()&&/^\d+.*\.sql$/.test(entry.name))
     .map(entry=>entry.name).sort();
-  if(!migrations.length)throw Error('SOCLE production: aucune migration SQL trouvée.');
+  if(!migrations.length)throw Error('OUVRANE production: aucune migration SQL trouvée.');
 
   // Le runtime vérifie le volume persistant ; :memory: reste disponible pour
   // les tests hermétiques de cet adapter, sans ouvrir de base BatiNova.
@@ -119,7 +119,7 @@ export function openProductionDatabase({databasePath,migrationsDirectory}={}){
     if(!inMemory)chmodSync(path,0o600);
     database.exec('PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000; PRAGMA synchronous=FULL;');
     const journal=database.prepare('PRAGMA journal_mode=WAL').get().journal_mode;
-    if(!inMemory&&journal!=='wal')throw Error('SOCLE production: mode WAL SQLite indisponible.');
+    if(!inMemory&&journal!=='wal')throw Error('OUVRANE production: mode WAL SQLite indisponible.');
     assertIntegrity(database);
     // Ce registre est partagé avec les bases déjà migrées. Aucun seed local,
     // script de simulation ou changement d'une migration historique ici.
@@ -133,7 +133,7 @@ export function openProductionDatabase({databasePath,migrationsDirectory}={}){
           assertIntegrity(database);
         });
       }catch(error){
-        throw new Error('SOCLE production: échec de la migration '+name,{cause:error});
+        throw new Error('OUVRANE production: échec de la migration '+name,{cause:error});
       }
     }
     assertIntegrity(database);
