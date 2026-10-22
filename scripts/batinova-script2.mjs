@@ -58,7 +58,7 @@ const env={DB:{
   prepare(sql){let values=[];return{_sql:sql,get _values(){return values},bind(...args){values=args;return this},async first(){return database.prepare(sql).get(...values)??null},async all(){return{results:database.prepare(sql).all(...values)}},async run(){const result=database.prepare(sql).run(...values);return{meta:{changes:Number(result.changes)}}}}},
   async batch(statements){database.exec('BEGIN IMMEDIATE');try{const out=[];for(const statement of statements){const result=database.prepare(statement._sql).run(...statement._values);out.push({meta:{changes:Number(result.changes)}})}database.exec('COMMIT');return out}catch(error){database.exec('ROLLBACK');throw error}}
 }};
-const {default:worker}=await import('../worker/index.js');
+const {default:worker}=await import('../dist/server/index.js');
 async function api(uid,method,path,payload){
   const headers={'oai-authenticated-user-id':uid,'x-socle-organization-id':organizationId,'origin':'https://socle.simulation'};
   if(payload!==undefined)headers['content-type']='application/json';
