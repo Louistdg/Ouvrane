@@ -3,7 +3,9 @@ import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {webcrypto} from 'node:crypto';
-const base=resolve(process.argv[2]||'./resilience-vm');
+// Par défaut, les fichiers sont lus dans le dépôt lui-même. Un argument permet de pointer
+// vers un instantané préparé, comme le prévoyait le nom du dossier « resilience-vm ».
+const base=resolve(process.argv[2]||join(import.meta.dirname,'..'));
 const source=name=>readFileSync(join(base,'web',name),'utf8');
 const results=[];
 const defer=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b});return{promise,resolve,reject}};

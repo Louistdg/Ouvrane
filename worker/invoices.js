@@ -1,0 +1,98 @@
+// Factures clients : routes et outils partagés (portée documentaire, import historique).
+//
+// Extrait de worker/index.js. Les dépendances arrivent par createInvoiceRoutes(hooks), que
+// index.js instancie une seule fois : les points d’appel restent identiques.
+
+export function createInvoiceRoutes(hooks){
+  const {json,body,rows,now,id,allowed,requirePermission,requireProjectScope,requireQuotePriceRead,requireQuoteRecordScope,requireFinanceProjectScope,auditStatement,dbBatch,exactObject,integerCents,financialText,validIsoDate,paymentMethod,operationKey,parseJson,workspaceProject,workspaceOwner,organizationWorkspaceState,hasTenantFinanceScope,quoteProjectCustomerId}=hooks;
+
+async function ensureLegacyInvoicesImported(env,ctx){if(ctx.preview)return;
+  const state=await organizationWorkspaceState(env,ctx.organizationId,{readOnly:ctx.preview});if(!state)return;
+  const owner=await workspaceOwner(env,ctx.organizationId),createdBy=owner?.user_id||ctx.uid,stamp=now();
+  for(const legacy of state?.accountingData?.customerInvoices||[]){
+    const sourceId=String(legacy?.id??'').trim(),number=String(legacy?.ref||'').trim();if(!sourceId||!number)continue;
+    const existing=await env.DB.prepare('SELECT id FROM invoices WHERE organization_id=? AND (legacy_source_id=? OR invoice_number=?) LIMIT 1').bind(ctx.organizationId,sourceId,number).first();if(existing)continue;
+    const total=Math.max(0,Math.round(Number(legacy.amount||0)*100));if(!Number.isSafeInteger(total)||total<=0)continue;
+    const vat=Math.max(0,Math.min(total,Math.round(Number(legacy.vatAmount||0)*100))),subtotal=legacy.netAmount==null?total-vat:Math.max(0,Math.round(Number(legacy.netAmount||0)*100)),issue=validIsoDate(legacy.date)?legacy.date:stamp.slice(0,10),due=validIsoDate(legacy.due)?legacy.due:issue,paidLegacy=legacy.status==='Payée'?total:Math.max(0,Math.min(total,Math.round(Number(legacy.amountPaid||0)*100))),status=paidLegacy>=total?'paid':paidLegacy>0?'partially_paid':'unpaid',invoiceId=id('invoice');
+    await env.DB.prepare('INSERT OR IGNORE INTO invoices(id,organization_id,customer_id,project_id,quote_id,invoice_number,invoice_type,status,issue_date,due_date,currency,subtotal_cents,vat_amount_cents,total_cents,amount_paid_cents,notes,created_by,created_at,updated_at,legacy_project_id,legacy_source_id,legacy_paid_cents) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(invoiceId,ctx.organizationId,null,null,null,number,'customer',status,issue,due,'EUR',subtotal,vat,total,paidLegacy,financialText(legacy.notes||'',2000),createdBy,stamp,stamp,legacy.job==null?null:String(legacy.job),sourceId,paidLegacy).run();
+  }
+}
+
+async function invoiceById(env,ctx,invoiceId){return env.DB.prepare('SELECT * FROM invoices WHERE id=? AND organization_id=? AND archived_at IS NULL').bind(String(invoiceId),ctx.organizationId).first()}
+
+async function invoiceScope(env,ctx,invoice){if(!invoice)return false;if(invoice.legacy_project_id)await requireFinanceProjectScope(env,ctx,invoice.legacy_project_id);else if(invoice.project_id)await requireFinanceProjectScope(env,ctx,invoice.project_id);return true}
+
+function invoiceFinancialPayload(invoice,payments=[],credits=[]){
+  const creditTotal=credits.reduce((sum,row)=>sum+Number(row.amount_cents||0),0),paid=Number(invoice.amount_paid_cents||0),net=Math.max(0,Number(invoice.total_cents||0)-creditTotal),remaining=Math.max(0,net-paid),creditBalance=Math.max(0,paid-net);
+  return{id:invoice.id,invoiceNumber:invoice.invoice_number,legacySourceId:invoice.legacy_source_id||null,projectId:invoice.legacy_project_id||invoice.project_id||null,customerId:invoice.customer_id||null,quoteId:invoice.quote_id||null,status:invoice.status,issueDate:invoice.issue_date,dueDate:invoice.due_date,currency:invoice.currency,subtotalCents:Number(invoice.subtotal_cents),vatAmountCents:Number(invoice.vat_amount_cents),totalCents:Number(invoice.total_cents),paidCents:paid,creditNoteCents:creditTotal,netTotalCents:net,remainingCents:remaining,customerCreditCents:creditBalance,payments:payments.map(row=>({id:row.id,amountCents:Number(row.amount_cents),paymentDate:row.payment_date,paymentMethod:row.payment_method,reference:row.reference||'',note:row.note||'',createdBy:row.created_by,createdAt:row.created_at})),creditNotes:credits.map(row=>({id:row.id,amountCents:Number(row.amount_cents),creditDate:row.credit_date,reason:row.reason,reference:row.reference||'',note:row.note||'',createdBy:row.created_by,createdAt:row.created_at}))}
+}
+
+async function requireInvoiceDocumentScope(env,ctx,invoice){
+ if(!invoice)throw Object.assign(Error('Document introuvable.'),{status:404});
+ await requirePermission(env,ctx,'invoices.view');await requirePermission(env,ctx,'accounting.view');
+ await invoiceScope(env,ctx,invoice);
+ if(!invoice.legacy_project_id&&!invoice.project_id&&ctx.roleCode!=='OWNER'&&!await hasTenantFinanceScope(env,ctx)&&!await allowed(env,ctx,'projects.view.all'))throw Object.assign(Error('Document introuvable.'),{status:404});
+}
+
+async function invoiceFinancialJson(env,ctx,invoice){
+  const payments=await rows(env.DB.prepare('SELECT id,amount_cents,payment_date,payment_method,reference,note,created_by,created_at,idempotency_key FROM payments WHERE organization_id=? AND invoice_id=? ORDER BY created_at,id').bind(ctx.organizationId,invoice.id));
+  const credits=await rows(env.DB.prepare('SELECT id,amount_cents,credit_date,reason,reference,note,created_by,created_at,idempotency_key FROM credit_notes WHERE organization_id=? AND invoice_id=? ORDER BY created_at,id').bind(ctx.organizationId,invoice.id));
+  return invoiceFinancialPayload(invoice,payments,credits);
+}
+
+function groupInvoiceRows(rowsList){const map=new Map();for(const row of rowsList){const key=String(row.invoice_id),list=map.get(key)||[];list.push(row);map.set(key,list)}return map}
+
+async function invoicesRoute(request,env,ctx){
+  if(request.method==='POST'){
+    await requirePermission(env,ctx,'invoices.create');
+    const data=exactObject(await body(request,50000),['customerId','projectId','quoteId','invoiceNumber','issueDate','dueDate','subtotalCents','vatAmountCents','notes']);
+    let projectId=data.projectId?String(data.projectId):null,customerId=data.customerId?String(data.customerId):null;const quoteId=data.quoteId?String(data.quoteId):null,invoiceNumber=financialText(data.invoiceNumber,120),issueDate=String(data.issueDate||''),dueDate=String(data.dueDate||''),notes=financialText(data.notes||'',2000);let subtotal=integerCents(data.subtotalCents),vat=Number(data.vatAmountCents||0);
+    if(!invoiceNumber||!validIsoDate(issueDate)||!validIsoDate(dueDate)||dueDate<issueDate||subtotal<=0||!Number.isSafeInteger(vat)||vat<0)return json({error:'Facture client invalide.'},400);
+    if(quoteId){
+      const quote=await env.DB.prepare("SELECT * FROM quotes_server WHERE organization_id=? AND id=? AND archived_at IS NULL").bind(ctx.organizationId,quoteId).first();if(!quote)return json({error:'Devis source introuvable.'},404);await requireQuoteRecordScope(env,ctx,quote);await requireQuotePriceRead(env,ctx);if(quote.status!=='accepted')return json({error:'Seul un devis accepté peut servir de source à une facture client.'},409);
+      const quoteProjectId=quote.project_id?String(quote.project_id):null,quoteCustomerId=quote.customer_id?String(quote.customer_id):(quoteProjectId?await quoteProjectCustomerId(env,ctx,quoteProjectId):null);if(!quoteCustomerId)return json({error:'Le devis accepté doit être relié à un client avant facturation.'},409);
+      if(projectId&&quoteProjectId&&projectId!==quoteProjectId)return json({error:'La facture et le devis doivent concerner le même chantier.'},400);if(customerId&&customerId!==quoteCustomerId)return json({error:'La facture et le devis doivent concerner le même client.'},400);projectId=quoteProjectId||projectId;customerId=quoteCustomerId;
+      const lines=parseJson(quote.lines_json,[]),quoteSubtotal=Math.round(lines.reduce((sum,line)=>sum+Number(line.qty||0)*Number(line.price||0),0)*100),quoteVat=Math.round(lines.reduce((sum,line)=>sum+Number(line.qty||0)*Number(line.price||0)*Number(line.vat||0)/100,0)*100);if(quoteSubtotal<=0)return json({error:'Le devis accepté ne contient aucun montant facturable.'},409);if(subtotal!==quoteSubtotal||vat!==quoteVat)return json({error:'Les montants de la facture ne correspondent plus au devis accepté. Rechargez la source.'},409);subtotal=quoteSubtotal;vat=quoteVat;
+      const already=await env.DB.prepare("SELECT id,invoice_number FROM invoices WHERE organization_id=? AND quote_id=? AND archived_at IS NULL LIMIT 1").bind(ctx.organizationId,quoteId).first();if(already&&String(already.invoice_number)!==invoiceNumber)return json({error:'Ce devis accepté est déjà relié à une facture client.'},409);
+    }
+    const total=subtotal+vat;
+    if(projectId){const state=await organizationWorkspaceState(env,ctx.organizationId,{readOnly:ctx.preview}),legacy=Boolean(state&&workspaceProject(state,projectId)),relational=await env.DB.prepare('SELECT 1 ok FROM projects WHERE organization_id=? AND id=? AND archived_at IS NULL').bind(ctx.organizationId,projectId).first();if(!legacy&&!relational)return json({error:'Chantier introuvable dans cette entreprise.'},404);await requireProjectScope(env,ctx,projectId)}
+    if(customerId&&!await env.DB.prepare('SELECT 1 ok FROM customers WHERE organization_id=? AND id=? AND archived_at IS NULL').bind(ctx.organizationId,customerId).first())return json({error:'Client introuvable dans cette entreprise.'},404);
+    const existing=await env.DB.prepare('SELECT * FROM invoices WHERE organization_id=? AND invoice_number=?').bind(ctx.organizationId,invoiceNumber).first();
+    if(existing){if(String(existing.customer_id||'')!==String(customerId||'')||String(existing.legacy_project_id||existing.project_id||'')!==String(projectId||'')||String(existing.quote_id||'')!==String(quoteId||'')||existing.issue_date!==issueDate||existing.due_date!==dueDate||Number(existing.subtotal_cents)!==subtotal||Number(existing.vat_amount_cents)!==vat||String(existing.notes||'')!==notes)return json({error:'Ce numéro de facture existe déjà avec des données différentes.'},409);return json({invoice:await invoiceFinancialJson(env,ctx,existing),replayed:true},200)}
+    const invoiceId=id('invoice'),stamp=now();await dbBatch(env,[env.DB.prepare('INSERT INTO invoices(id,organization_id,customer_id,project_id,quote_id,invoice_number,invoice_type,status,issue_date,due_date,currency,subtotal_cents,vat_amount_cents,total_cents,amount_paid_cents,notes,created_by,created_at,updated_at,legacy_project_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(invoiceId,ctx.organizationId,customerId,null,quoteId,invoiceNumber,'standard','unpaid',issueDate,dueDate,'EUR',subtotal,vat,total,0,notes,ctx.uid,stamp,stamp,projectId),auditStatement(env,ctx,'invoice.created','invoice',invoiceId,{invoice_number:invoiceNumber,project_id:projectId,customer_id:customerId,quote_id:quoteId,subtotal_cents:subtotal,vat_amount_cents:vat,total_cents:total})]);const created=await invoiceById(env,ctx,invoiceId);return json({invoice:await invoiceFinancialJson(env,ctx,created)},201)
+  }
+  if(request.method!=='GET')return json({error:'Méthode non autorisée.'},405);
+  await requirePermission(env,ctx,'invoices.view');
+  const candidates=await rows(env.DB.prepare('SELECT * FROM invoices WHERE organization_id=? AND archived_at IS NULL ORDER BY issue_date DESC,created_at DESC LIMIT 500').bind(ctx.organizationId));
+  let projectScope=null;
+  const tenantFinanceScope=await hasTenantFinanceScope(env,ctx);
+  if(!tenantFinanceScope&&ctx.roleCode!=='OWNER'&&!await allowed(env,ctx,'projects.view.all')){
+    projectScope=new Set();
+    if(await allowed(env,ctx,'projects.view.assigned'))for(const grant of await rows(env.DB.prepare('SELECT project_id FROM project_access WHERE organization_id=? AND user_id=?').bind(ctx.organizationId,ctx.uid)))projectScope.add(String(grant.project_id));
+  }
+  const visible=candidates.filter(invoice=>{const projectId=invoice.legacy_project_id||invoice.project_id;return !projectId||projectScope===null||projectScope.has(String(projectId))});
+  const payments=await rows(env.DB.prepare("SELECT p.id,p.invoice_id,p.amount_cents,p.payment_date,p.payment_method,p.reference,p.note,p.created_by,p.created_at,p.idempotency_key FROM payments p JOIN (SELECT id FROM invoices WHERE organization_id=? AND archived_at IS NULL ORDER BY issue_date DESC,created_at DESC LIMIT 500) listed ON listed.id=p.invoice_id WHERE p.organization_id=? ORDER BY p.invoice_id,p.created_at,p.id").bind(ctx.organizationId,ctx.organizationId));
+  const credits=await rows(env.DB.prepare("SELECT c.id,c.invoice_id,c.amount_cents,c.credit_date,c.reason,c.reference,c.note,c.created_by,c.created_at,c.idempotency_key FROM credit_notes c JOIN (SELECT id FROM invoices WHERE organization_id=? AND archived_at IS NULL ORDER BY issue_date DESC,created_at DESC LIMIT 500) listed ON listed.id=c.invoice_id WHERE c.organization_id=? ORDER BY c.invoice_id,c.created_at,c.id").bind(ctx.organizationId,ctx.organizationId));
+  const paymentMap=groupInvoiceRows(payments),creditMap=groupInvoiceRows(credits);
+  return json({invoices:visible.map(invoice=>invoiceFinancialPayload(invoice,paymentMap.get(String(invoice.id))||[],creditMap.get(String(invoice.id))||[]))})
+}
+
+async function invoiceDetailRoute(request,env,ctx,invoiceId){if(request.method!=='GET')return json({error:'Méthode non autorisée.'},405);await requirePermission(env,ctx,'invoices.view');const invoice=await invoiceById(env,ctx,invoiceId);if(!invoice)return json({error:'Facture introuvable.'},404);await invoiceScope(env,ctx,invoice);return json({invoice:await invoiceFinancialJson(env,ctx,invoice)})}
+
+async function invoicePaymentsRoute(request,env,ctx,invoiceId){
+  const invoice=await invoiceById(env,ctx,invoiceId);if(!invoice)return json({error:'Facture introuvable.'},404);await invoiceScope(env,ctx,invoice);
+  if(request.method==='GET'){await requirePermission(env,ctx,'invoices.view');return json({payments:(await invoiceFinancialJson(env,ctx,invoice)).payments})}
+  if(request.method!=='POST')return json({error:'Méthode non autorisée.'},405);await requirePermission(env,ctx,'payments.create');const data=exactObject(await body(request,30000),['amountCents','paymentDate','paymentMethod','reference','note','operationKey']),amount=integerCents(data.amountCents),date=String(data.paymentDate||'');if(!validIsoDate(date))return json({error:'Date de paiement invalide.'},400);const method=paymentMethod(data.paymentMethod),reference=financialText(data.reference,240),note=financialText(data.note,1000),key=operationKey(data),existing=await env.DB.prepare('SELECT * FROM payments WHERE organization_id=? AND idempotency_key=?').bind(ctx.organizationId,key).first();if(existing){if(existing.invoice_id!==invoice.id||Number(existing.amount_cents)!==amount||existing.payment_date!==date||existing.payment_method!==method||String(existing.reference||'')!==reference||String(existing.note||'')!==note)return json({error:'Cette clé d’opération a déjà été utilisée avec des données différentes.'},409);return json({paymentId:existing.id,replayed:true,invoice:await invoiceFinancialJson(env,ctx,invoice)},200)}
+  const paymentId=id('payment'),stamp=now(),insert=env.DB.prepare('INSERT INTO payments(id,organization_id,invoice_id,customer_id,amount_cents,payment_date,payment_method,reference,created_by,created_at,note,idempotency_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').bind(paymentId,ctx.organizationId,invoice.id,invoice.customer_id,amount,date,method,reference||null,ctx.uid,stamp,note,key),auditRow=auditStatement(env,ctx,'payment.created','payment',paymentId,{invoice_id:invoice.id,amount_cents:amount,payment_date:date,payment_method:method,reference});try{await dbBatch(env,[insert,auditRow])}catch(error){const replay=await env.DB.prepare('SELECT * FROM payments WHERE organization_id=? AND idempotency_key=?').bind(ctx.organizationId,key).first();if(replay&&replay.invoice_id===invoice.id&&Number(replay.amount_cents)===amount)return json({paymentId:replay.id,replayed:true,invoice:await invoiceFinancialJson(env,ctx,await invoiceById(env,ctx,invoice.id))},200);if(String(error?.message||'').includes('payment_overpayment'))return json({error:'Le paiement dépasse le restant dû.'},409);if(String(error?.message||'').includes('payment_'))return json({error:'Paiement refusé par les contrôles financiers.'},400);throw error}return json({paymentId,invoice:await invoiceFinancialJson(env,ctx,await invoiceById(env,ctx,invoice.id))},201)
+}
+
+async function invoiceCreditNotesRoute(request,env,ctx,invoiceId){
+  const invoice=await invoiceById(env,ctx,invoiceId);if(!invoice)return json({error:'Facture introuvable.'},404);await invoiceScope(env,ctx,invoice);
+  if(request.method==='GET'){await requirePermission(env,ctx,'invoices.view');return json({creditNotes:(await invoiceFinancialJson(env,ctx,invoice)).creditNotes})}
+  if(request.method!=='POST')return json({error:'Méthode non autorisée.'},405);await requirePermission(env,ctx,'credit_notes.create');const data=exactObject(await body(request,30000),['amountCents','creditDate','reason','reference','note','operationKey']),amount=integerCents(data.amountCents),date=String(data.creditDate||''),reason=financialText(data.reason,500),reference=financialText(data.reference,240),note=financialText(data.note,1000),key=operationKey(data);if(!validIsoDate(date)||!reason)return json({error:'Date et motif de l’avoir sont obligatoires.'},400);const existing=await env.DB.prepare('SELECT * FROM credit_notes WHERE organization_id=? AND idempotency_key=?').bind(ctx.organizationId,key).first();if(existing){if(existing.invoice_id!==invoice.id||Number(existing.amount_cents)!==amount||existing.credit_date!==date||existing.reason!==reason||String(existing.reference||'')!==reference||String(existing.note||'')!==note)return json({error:'Cette clé d’opération a déjà été utilisée avec des données différentes.'},409);return json({creditNoteId:existing.id,replayed:true,invoice:await invoiceFinancialJson(env,ctx,invoice)},200)}
+  const creditId=id('credit-note'),stamp=now(),insert=env.DB.prepare('INSERT INTO credit_notes(id,organization_id,invoice_id,amount_cents,credit_date,reason,reference,note,idempotency_key,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)').bind(creditId,ctx.organizationId,invoice.id,amount,date,reason,reference||null,note,key,ctx.uid,stamp),auditRow=auditStatement(env,ctx,'credit_note.created','credit_note',creditId,{invoice_id:invoice.id,amount_cents:amount,credit_date:date,reason,reference});try{await dbBatch(env,[insert,auditRow])}catch(error){const replay=await env.DB.prepare('SELECT * FROM credit_notes WHERE organization_id=? AND idempotency_key=?').bind(ctx.organizationId,key).first();if(replay&&replay.invoice_id===invoice.id&&Number(replay.amount_cents)===amount)return json({creditNoteId:replay.id,replayed:true,invoice:await invoiceFinancialJson(env,ctx,await invoiceById(env,ctx,invoice.id))},200);if(String(error?.message||'').includes('credit_note_excess'))return json({error:'Le montant de l’avoir dépasse le montant encore créditable de la facture.'},409);if(String(error?.message||'').includes('credit_note_'))return json({error:'Avoir refusé par les contrôles financiers.'},400);throw error}return json({creditNoteId:creditId,invoice:await invoiceFinancialJson(env,ctx,await invoiceById(env,ctx,invoice.id))},201)
+}
+
+  return {invoicesRoute,invoiceDetailRoute,invoicePaymentsRoute,invoiceCreditNotesRoute,invoiceById,invoiceScope,requireInvoiceDocumentScope,ensureLegacyInvoicesImported};
+}
