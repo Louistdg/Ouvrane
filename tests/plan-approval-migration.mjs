@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {mkdtempSync,mkdirSync,readFileSync,writeFileSync,readdirSync} from 'node:fs';
+import {fileURLToPath} from 'node:url';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {openProductionDatabase} from '../scripts/production-db.mjs';
+
+const dir=mkdtempSync(join(tmpdir(),'ouvrane-plan-approval-')),path=join(dir,'synthetic.sqlite');
+const migrations=fileURLToPath(new URL('../drizzle/',import.meta.url)),prior=join(dir,'prior-migrations');mkdirSync(prior);
+for(const name of readdirSync(migrations))if(name.endsWith('.sql')&&name!=='0067_plan_approvals.sql')writeFileSync(join(prior,name),readFileSync(join(migrations,name)));
+let storage=openProductionDatabase({databasePath:path,migrationsDirectory:prior}),db=storage.database;
+db.exec(`
+INSERT INTO organizations(id,name,created_at,updated_at) VALUES('org','Plan QA','2026-10-25','2026-10-25');
+INSERT INTO profiles(id,first_name,last_name,email,created_at,updated_at) VALUES('owner','Plan','Owner','plan-owner@invalid','2026-10-25','2026-10-25');
+INSERT INTO document_folders(id,organization_id,name,context_type,sensitivity,created_by,created_at,updated_at) VALUES('folder','org','Plans','project','standard','owner','2026-10-25','2026-10-25');
+INSERT INTO secure_documents(id,organization_id,folder_id,storage_key,original_name,content_type,byte_size,checksum_sha256,sensitivity,status,uploaded_by,created_at,updated_at) VALUES('doc-a','org','folder','plan-a','A.pdf','application/pdf',1,'sha-a','standard','available','owner','2026-10-25','2026-10-25');
+INSERT INTO plan_sets(organization_id,id,visit_id,project_id,title,operation_key,created_by,created_at) VALUES('org','plan',NULL,'project-x','Plan chantier','plan-create-key','owner','2026-10-25');
+INSERT INTO plan_file_versions(organization_id,id,plan_id,version,document_id,checksum_sha256,change_note,operation_key,created_by,created_at) VALUES('org','version-a','plan',1,'doc-a','sha-a','Indice A','version-a-key','owner','2026-10-25');
+`);
+storage.close();
+storage=openProductionDatabase({databasePath:path,migrationsDirectory:migrations});db=storage.database;
+assert.equal(db.prepare("SELECT COUNT(*) n FROM local_migrations WHERE name='0067_plan_approvals.sql'").get().n,1);
+const seeded=db.prepare("SELECT * FROM plan_version_approvals WHERE organization_id='org' AND plan_version_id='version-a'").get();assert.ok(seeded);assert.match(seeded.note,/préservée/);
+assert.throws(()=>db.prepare("UPDATE plan_version_approvals SET note='changed' WHERE id=? AND organization_id='org'").run(seeded.id),/plan_approval_immutable/);
+assert.throws(()=>db.prepare("DELETE FROM plan_version_approvals WHERE id=? AND organization_id='org'").run(seeded.id),/plan_approval_immutable/);
+db.exec("INSERT INTO secure_documents(id,organization_id,folder_id,storage_key,original_name,content_type,byte_size,checksum_sha256,sensitivity,status,uploaded_by,created_at,updated_at) VALUES('doc-b','org','folder','plan-b','B.pdf','application/pdf',1,'sha-b','standard','available','owner','2026-10-25','2026-10-25'); INSERT INTO plan_file_versions(organization_id,id,plan_id,version,document_id,checksum_sha256,change_note,operation_key,created_by,created_at) VALUES('org','version-b','plan',2,'doc-b','sha-b','Indice B','version-b-key','owner','2026-10-25');");
+assert.equal(db.prepare("SELECT COUNT(*) n FROM plan_version_approvals WHERE plan_version_id='version-b'").get().n,0,'new revision must not auto-approve');
+db.prepare("INSERT INTO plan_version_approvals(organization_id,id,plan_id,plan_version_id,note,operation_key,approved_by,approved_at) VALUES('org','approval-b','plan','version-b','Validé terrain','approval-b-key','owner','2026-10-25')").run();
+assert.equal(db.prepare("SELECT plan_version_id FROM plan_version_approvals a JOIN plan_file_versions v ON v.organization_id=a.organization_id AND v.id=a.plan_version_id WHERE a.organization_id='org' AND a.plan_id='plan' ORDER BY v.version DESC LIMIT 1").get().plan_version_id,'version-b');
+assert.equal(db.prepare('PRAGMA integrity_check').get().integrity_check,'ok');
+storage.close();
+console.log(JSON.stringify({status:'PASS',checks:7,syntheticDatabase:path,productionAccess:false},null,2));

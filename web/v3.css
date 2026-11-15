@@ -119,3 +119,50 @@ body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-b-weekday-settings lab
 body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-b-weekday-settings input{width:18px;height:18px;margin:0;accent-color:var(--v3-accent)}
 @media(max-width:760px){body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-home-portal-links{grid-template-columns:repeat(2,minmax(0,1fr))}body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-home-portal-links a{grid-template-columns:36px minmax(0,1fr) 15px;gap:var(--sx-space-3);padding:var(--sx-space-3)}body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-home-portal-mark{width:34px;height:34px}body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-b-week-board{grid-template-columns:minmax(0,1fr);min-width:0}}
 @media(max-width:390px){body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-home-portal-links a{grid-template-columns:32px minmax(0,1fr) 14px;gap:var(--sx-space-2);padding:var(--sx-space-3)}body.socle-v3[data-socle-theme][data-ia-a-role] #main .ia-home-portal-mark{width:30px;height:30px;font-size:.62rem}}
+/* The workspace chrome keeps daily actions visible and groups secondary commands. */
+.v3-account-menu{position:relative;flex:0 0 auto}
+.v3-account-menu>summary{display:flex;align-items:center;min-height:36px;padding:0 10px;list-style:none;cursor:pointer;border:1px solid var(--sx-line);border-radius:8px;color:var(--sx-ink);background:var(--sx-surface);font-size:13px;font-weight:700}
+.v3-account-menu>summary::-webkit-details-marker{display:none}
+.v3-account-menu>summary::after{content:'⌄';margin-left:6px}
+.v3-account-menu>summary:focus-visible{outline:2px solid var(--sx-accent);outline-offset:2px}
+.v3-account-panel{position:absolute;right:0;top:calc(100% + 8px);z-index:100;width:220px;padding:10px;display:grid;gap:7px;border:1px solid var(--sx-line);border-radius:10px;background:var(--sx-surface);box-shadow:var(--sx-shadow-2)}
+.v3-account-menu:not([open])>.v3-account-panel{display:none}
+.v3-account-panel>form{margin:0}
+.v3-account-panel>button,.v3-account-panel>form>button,.v3-account-panel .v3-theme-button{width:100%;min-height:40px;justify-content:flex-start;text-align:left}
+.v3-account-panel .v3-theme-menu{right:0;left:auto;top:calc(100% + 8px)}
+body.socle-v3 .job-tabs-customizer{display:flex;justify-content:flex-end;margin:0 0 6px}
+body.socle-v3 .job-tabs-customizer .link{min-height:36px;padding:6px 10px}
+body.socle-v3 .job-workspace-tabs .job-tab-move[hidden],
+body.socle-v3 .job-workspace-tabs:not([data-customizing="true"]) .job-tab-move{display:none!important}
+body.socle-v3 .job-workspace-tabs[data-customizing="true"] .job-tab-move{display:inline-flex;align-items:center;gap:2px;flex-shrink:0}
+body.socle-v3 .job-workspace-tabs .job-tab-move button{min-width:32px;min-height:36px;padding:4px;border-radius:5px;font-size:10px}
+body.socle-v3 .job-workspace-tabs .job-tab-move button:disabled{opacity:.35;cursor:default}
+@media(min-width:900px){
+ body.socle-v3 .topbar{gap:10px}
+ body.socle-v3 .topbar .workspace{flex:0 1 210px;min-width:100px;max-width:210px}
+ body.socle-v3 .topbar .workspace #organizationLabel{display:flex;align-items:center;flex-wrap:nowrap;gap:6px;min-width:0;max-width:100%;overflow:visible;white-space:nowrap}
+ body.socle-v3 .topbar .workspace #organizationLabel .organization-current{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ body.socle-v3 .topbar .workspace #organizationLabel .organization-mobile-trigger{flex:0 0 auto;align-self:center;min-width:28px;min-height:32px;padding:0 4px}
+ body.socle-v3 .topbar .workspace select{max-width:100%}
+ body.socle-v3 .topbar .global-search{flex:1 1 280px;min-width:180px;max-width:520px;margin:0}
+ body.socle-v3 .topbar .global-search input{width:100%;min-width:0}
+ body.socle-v3 .topbar .header-right{flex:0 0 auto;gap:8px;margin-left:auto}
+}
+@media(min-width:900px) and (max-width:1199px){
+ body.socle-v3 .topbar .workspace{max-width:150px}
+ body.socle-v3 .topbar .pf-bell-label{display:none}
+ body.socle-v3 .topbar .v3-version{display:none}
+}
+
+/* A compact, scoped list of the next useful actions for a project. */
+.project-next-actions{margin-bottom:16px}
+.project-next-actions .panel-head{gap:12px}
+.project-next-actions .panel-head h2{margin:0}
+.project-next-actions .panel-head p{margin:4px 0 0;color:var(--sx-muted)}
+.project-next-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;border-top:1px solid var(--sx-line)}
+.project-next-row>div{min-width:0}
+.project-next-row strong{display:block;overflow-wrap:anywhere}
+.project-next-row p{margin:4px 0 0;color:var(--sx-muted);font-size:13px}
+.project-next-row .btn{flex:0 0 auto;min-height:40px}
+.project-next-foot,.project-next-empty{padding:0 16px;color:var(--sx-muted);font-size:12px}
+@media(max-width:600px){.project-next-row{align-items:stretch;flex-direction:column;gap:8px}.project-next-row .btn{align-self:flex-start}}

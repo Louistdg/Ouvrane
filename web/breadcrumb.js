@@ -1,7 +1,6 @@
 /* Fil d'Ariane discret, aligné sur la navigation réelle. */
 (function(){
 'use strict';
-var pending=false;
 function esc(value){return String(value==null?'':value).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
 function currentLabel(){
   var heading=document.querySelector('#main h1');
@@ -34,7 +33,9 @@ function render(){
   var home=existing.querySelector('[data-sx-home]');
   if(home)home.addEventListener('click',function(event){event.preventDefault();if(typeof navigate==='function')navigate('home');});
 }
-function schedule(){if(pending)return;pending=true;requestAnimationFrame(function(){pending=false;render();});}
+// MutationObserver already batches changes before the next input task.
+// Deferring again to a frame moved controls after their click position was read.
+function schedule(){render();}
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',schedule,{once:true});else schedule();
 var main=document.querySelector('#main');
 if(main)new MutationObserver(schedule).observe(main,{childList:true});

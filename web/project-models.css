@@ -1,0 +1,25 @@
+/* Uses the active OUVRANE theme; all model controls retain a tactile target. */
+.project-models-entry{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;min-width:0}
+.project-models-entry>div{flex:1 1 220px;min-width:0}.project-models-entry h2,.project-models-entry p{margin:0 0 8px}
+.project-models-dialog{box-sizing:border-box;width:min(1080px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);margin:auto;padding:24px;border:1px solid var(--line,#546263);border-radius:var(--sx-radius-lg,14px);background:var(--panel,#162a2d);color:var(--text,var(--ink,#f2f7f7));font-family:inherit;overflow:auto;overscroll-behavior:contain}
+.project-models-dialog::backdrop{background:rgba(0,0,0,.65)}
+.project-models-dialog *{box-sizing:border-box}.project-models-dialog [hidden]{display:none!important}
+.project-models-dialog h2,.project-models-dialog h3{margin:0 0 8px}.project-models-dialog p{line-height:1.5;overflow-wrap:anywhere}.project-models-dialog .subtle{color:var(--muted,#b9c7c7)}
+.project-models-top,.project-models-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}.project-models-top>div{flex:1 1 220px;min-width:0}.project-models-top p{margin:0 0 8px}
+.project-models-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:12px 0}
+.project-models-dialog button,.project-models-entry button,.project-models-dialog select,.project-models-dialog input{min-height:44px;max-width:100%;font:inherit}
+.project-models-dialog button,.project-models-entry button{white-space:normal;overflow-wrap:anywhere;line-height:1.35;padding:10px 14px}
+.project-models-dialog :is(button,input,select):focus-visible,.project-models-entry button:focus-visible{outline:3px solid var(--accent,#7cdac8);outline-offset:3px}
+.project-models-dialog button:disabled{opacity:.55;cursor:wait}
+.project-models-dialog input,.project-models-dialog select{display:block;box-sizing:border-box;width:100%;min-width:0;padding:10px 12px;margin-top:6px;border:1px solid var(--line,#627b7c);border-radius:8px;background:var(--surface,var(--panel,#162a2d));color:inherit}
+.project-models-dialog input[type=file]{white-space:normal;font-size:.9rem;overflow:hidden}.project-models-dialog input::file-selector-button{min-height:44px;margin-right:8px;padding:8px;font:inherit}
+.project-models-dialog label{display:block;min-width:0;font-weight:600;line-height:1.5}
+.project-models-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 0;border-bottom:1px solid var(--line,#627b7c)}
+.project-models-row>div{flex:1 1 200px;min-width:0;overflow-wrap:anywhere}.project-models-row small{display:block;margin-top:5px;color:var(--muted,#b9c7c7);line-height:1.5}
+.project-models-empty{padding:16px 0;color:var(--muted,#b9c7c7)}
+.project-models-detail{margin-top:22px;padding-top:20px;border-top:1px solid var(--line,#627b7c)}
+.project-models-version{max-width:100%;margin:14px 0}.project-models-error{padding:12px 14px;border-left:4px solid var(--sx-danger,#e5484d);background:var(--surface,var(--panel,#162a2d));font-weight:600}
+.project-models-import{padding:18px;margin-top:20px;border:1px solid var(--line,#627b7c);border-radius:12px;background:var(--surface,var(--panel,#162a2d))}.project-models-import label{margin:14px 0}
+.project-models-stage:empty{display:none}.project-models-stage{position:relative;min-width:0;overflow:hidden;border:1px solid var(--line,#627b7c);border-radius:12px;margin-top:14px;background:var(--surface,var(--panel,#162a2d))}
+.project-models-stage model-viewer{display:block;width:100%;height:440px;max-height:65dvh;min-height:260px;background:var(--surface,var(--panel,#162a2d));--poster-color:transparent}
+@media(max-width:600px){.project-models-dialog{width:calc(100vw - 16px);max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);padding:16px;border-radius:12px}.project-models-row{align-items:flex-start;flex-wrap:wrap;gap:10px}.project-models-row>div{flex-basis:100%}.project-models-actions>*{flex:1 1 160px}.project-models-entry button{width:100%}.project-models-top{gap:8px}.project-models-top>div{flex-basis:calc(100% - 100px)}.project-models-import{padding:12px}.project-models-stage model-viewer{height:330px;max-height:55dvh}}

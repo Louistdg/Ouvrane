@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {connectBrowser,waitForApp,waitFor} from './helpers/browser-cdp.mjs';
+
+const base=process.env.SOCLE_TEST_URL,browser=await connectBrowser(base),tab=await browser.createSession(base);
+try{
+ await tab.navigate(base);
+ const login=async email=>{await tab.evaluate(`fetch('/__local-test/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:${JSON.stringify(email)}})})`,'supplier-payment-login');await tab.reload();await waitForApp(tab)};
+ const api=async(path,method='GET',data)=>tab.evaluate(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'content-type':'application/json'},${data===undefined?'':`body:JSON.stringify(${JSON.stringify(data)}),`}}).then(async r=>({status:r.status,data:await r.json()}))`,'supplier-payment-api');
+ await login('direction@batinova.example');
+ const projectId=await tab.evaluate('String(jobs[0].id)','supplier-payment-project');
+ const baseline=(await api('/api/accounting/summary')).data;
+ const operationKey='qa-supplier-expense-'+Date.now(),reference='QA-PAY-'+Date.now();
+ const payload={supplierId:null,supplierReference:reference,projectId,category:'materials',description:'Facture fournisseur paiement II-C',expenseDate:'2026-10-23',dueDate:'2026-10-24',total:'121.00',vatAmount:'21.00',vatRate:21,paymentStatus:'unpaid',paymentDate:null,documentName:null,operationKey};
+ const created=await api('/api/expenses','POST',payload);assert.equal(created.status,201,JSON.stringify(created));const expenseId=String(created.data.id);
+ const replayExpense=await api('/api/expenses','POST',payload);assert.equal(replayExpense.status,200,JSON.stringify(replayExpense));assert.equal(replayExpense.data.replayed,true);assert.equal(String(replayExpense.data.id),expenseId);
+ let expenses=(await api('/api/expenses')).data.expenses,item=expenses.find(row=>String(row.id)===expenseId);assert.ok(item);assert.equal(item.payment_status,'overdue');assert.equal(item.paidCents,0);assert.equal(item.outstandingCents,12100);assert.equal(item.due_date,'2026-10-24');
+ let summary=(await api('/api/accounting/summary')).data;assert.equal(summary.toPay,baseline.toPay+12100);assert.ok(summary.supplierOverdue>=12100);
+ const initialPayments=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments');assert.equal(initialPayments.status,200);assert.equal(initialPayments.data.summary.paymentStatus,'overdue');assert.equal(initialPayments.data.summary.outstandingCents,12100);
+ const invalidMethod=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments','POST',{amountCents:1000,paymentDate:'2026-10-24',paymentMethod:'crypto',reference:'QA invalid',note:'Doit être refusé',operationKey:'qa-supplier-invalid-'+Date.now()});assert.equal(invalidMethod.status,400,JSON.stringify(invalidMethod));
+ const partialKey='qa-supplier-partial-'+Date.now(),partialBody={amountCents:4000,paymentDate:'2026-10-24',paymentMethod:'bank_transfer',reference:'QA-VIR-40',note:'Paiement partiel II-C',operationKey:partialKey};
+ const partial=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments','POST',partialBody);assert.equal(partial.status,201,JSON.stringify(partial));assert.equal(partial.data.summary.paidCents,4000);assert.equal(partial.data.summary.outstandingCents,8100);assert.equal(partial.data.summary.paymentStatus,'overdue');
+ const replayPayment=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments','POST',partialBody);assert.equal(replayPayment.status,200);assert.equal(replayPayment.data.replayed,true);
+ const changedReplay=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments','POST',{...partialBody,amountCents:3900});assert.equal(changedReplay.status,409);
+ const overpay=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments','POST',{amountCents:9000,paymentDate:'2026-10-25',paymentMethod:'card',reference:'QA-over',note:'Dépassement',operationKey:'qa-supplier-over-'+Date.now()});assert.equal(overpay.status,409,JSON.stringify(overpay));
+ summary=(await api('/api/accounting/summary')).data;assert.equal(summary.toPay,baseline.toPay+8100);
+ await tab.evaluate(`(async()=>{serverFinanceState='idle';await loadServerFinance();await openSupplierPayments(${JSON.stringify(expenseId)})})()`,'open-supplier-payment-ui');
+ let detail=await tab.evaluate("document.querySelector('#modalbody').textContent",'supplier-payment-detail');assert.match(detail,/Reste à payer/);assert.match(detail,/81,00/);assert.match(detail,/24\/10\/2026/);assert.match(detail,/Virement/);
+ await tab.evaluate(`(()=>{const form=document.querySelector('#modalbody form[onsubmit^="saveSupplierPayment"]');if(!form)throw Error('supplier payment form missing');form.elements.amount.value='81.00';form.elements.paymentDate.value='2026-10-25';form.elements.paymentMethod.value='card';form.elements.reference.value='QA-CARD-81';form.elements.note.value='Solde II-C via UI';form.requestSubmit();return true})()`,'supplier-payment-ui-submit');
+ await waitFor(()=>tab.evaluate("document.querySelector('#modalbody')?.textContent.includes('Facture soldée')&&document.querySelector('#modalbody')?.textContent.includes('0,00')",'supplier-payment-ui-paid'),{label:'Supplier payment UI paid'});
+ let paymentState=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments');assert.equal(paymentState.status,200);assert.equal(paymentState.data.summary.paidCents,12100);assert.equal(paymentState.data.summary.outstandingCents,0);assert.equal(paymentState.data.summary.paymentStatus,'paid');const cardPayment=paymentState.data.payments.find(row=>row.status==='active'&&row.paymentMethod==='card');assert.ok(cardPayment,'UI card payment missing');
+ summary=(await api('/api/accounting/summary')).data;assert.equal(summary.toPay,baseline.toPay);
+ await tab.evaluate(`(()=>{const previous=globalThis.prompt;globalThis.prompt=()=> 'Annulation QA II-C';voidSupplierPayment(${JSON.stringify(expenseId)},${JSON.stringify(cardPayment.id)});globalThis.prompt=previous;return true})()`,'supplier-payment-ui-void');
+ await waitFor(()=>tab.evaluate("document.querySelector('#modalbody')?.textContent.includes('Reste à payer')&&document.querySelector('#modalbody')?.textContent.includes('81,00')&&!document.querySelector('#modalbody')?.textContent.includes('Facture soldée')",'supplier-payment-ui-voided'),{label:'Supplier payment UI voided'});
+ paymentState=await api('/api/expenses/'+encodeURIComponent(expenseId)+'/payments');assert.equal(paymentState.data.summary.paidCents,4000);assert.equal(paymentState.data.summary.outstandingCents,8100);assert.equal(paymentState.data.payments.find(row=>row.id===cardPayment.id)?.status,'voided');assert.equal(paymentState.data.payments.find(row=>row.id===cardPayment.id)?.voidReason,'Annulation QA II-C');
+ summary=(await api('/api/accounting/summary')).data;assert.equal(summary.toPay,baseline.toPay+8100);
+ await tab.evaluate("serverExpenseForm()", 'supplier-expense-create-ui');
+ assert.equal(await tab.evaluate("!!document.querySelector('#supplierExpensePaymentDate[hidden]')",'supplier-expense-payment-date-hidden'),true);
+ await tab.evaluate(`(()=>{const form=document.querySelector('#modalbody form');form.elements.expenseDate.value='2026-10-25';form.elements.dueDate.value='2026-10-25';form.elements.total.value='12.10';form.elements.vatAmount.value='2.10';form.elements.description.value='Facture fournisseur payée à la création II-C';form.elements.paymentStatus.value='paid';form.elements.paymentStatus.dispatchEvent(new Event('change',{bubbles:true}));form.elements.paymentDate.value='2026-10-25';form.requestSubmit();return true})()`,'supplier-expense-create-paid-ui');
+ await waitFor(()=>tab.evaluate("serverExpenses.some(row=>row.description==='Facture fournisseur payée à la création II-C'&&row.payment_status==='paid')",'supplier-expense-paid-created'),{label:'Paid supplier expense created from UI'});
+ const paidExpense=await tab.evaluate("serverExpenses.find(row=>row.description==='Facture fournisseur payée à la création II-C')",'supplier-expense-paid-row');assert.ok(paidExpense?.id);
+ const paidPayments=await api('/api/expenses/'+encodeURIComponent(paidExpense.id)+'/payments');assert.equal(paidPayments.status,200);assert.equal(paidPayments.data.summary.outstandingCents,0);assert.equal(paidPayments.data.payments.filter(row=>row.status==='active').length,1);
+ console.log('PASS II-C supplier payments: due date/overdue, partial payment, method validation, replay, overpayment guard, accounting summary, UI payment + void, paid-at-create form with operation key.');
+}finally{await tab.close();await browser.close()}

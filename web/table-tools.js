@@ -59,7 +59,7 @@ function ensure(container){
   var hidden=readHidden(container);
   applyHidden(table,hidden);
   var tools=document.createElement('div');tools.className='sx-table-tools';
-  var filter=document.createElement('input');filter.type='search';filter.className='sx-table-filter';filter.placeholder='Filtrer les lignes…';filter.setAttribute('aria-label','Filtrer les lignes du tableau');filter.value=readFilter(container);
+  var filter=document.createElement('input');filter.type='search';filter.className='sx-table-filter';filter.placeholder='Filtrer les lignes…';filter.setAttribute('aria-label','Filtrer les lignes du tableau');filter.value=container.dataset.tableFilter==='external'?'':readFilter(container);
   var count=document.createElement('span');count.className='sx-table-count';
   var columns=document.createElement('details');columns.className='sx-table-columns';columns.innerHTML='<summary>Colonnes</summary>';
   var menu=document.createElement('div');menu.className='sx-table-columns-menu';
@@ -87,7 +87,8 @@ function ensure(container){
   var exportButton=document.createElement('button');exportButton.type='button';exportButton.className='sx-table-export';exportButton.textContent='Exporter CSV';
   var bulk=document.createElement('div');bulk.className='sx-table-bulk';bulk.hidden=true;
   bulk.innerHTML='<span class="sx-table-bulk-count">0 sélectionnée</span><button type="button" class="sx-table-bulk-export">Exporter la sélection</button><button type="button" class="sx-table-bulk-clear">Tout désélectionner</button>';
-  tools.append(filter,count,columns,select,pdfButton,exportButton);
+  if(container.dataset.tableFilter!=='external')tools.append(filter);
+  tools.append(count,columns,select,pdfButton,exportButton);
   if(container.parentNode){container.parentNode.insertBefore(tools,container);container.parentNode.insertBefore(bulk,container);}else{container.prepend(tools,bulk);}
 
   function visibleRows(){var q=String(filter.value||'').trim().toLocaleLowerCase('fr');return rows.filter(function(row){return !q||String(row.innerText||'').toLocaleLowerCase('fr').includes(q);});}

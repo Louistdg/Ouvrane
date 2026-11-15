@@ -1,165 +1,202 @@
 import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
 import {writeFileSync} from 'node:fs';
 import {connectBrowser,waitFor,waitForApp} from './helpers/browser-cdp.mjs';
 
-// Qualification INTÉGRÉE du lot 21 dans une seule session réelle, avec captures finales
-// PC (1440) et mobile (412). Tous les parcours passent par l'application réelle et le
-// serveur SQL : création avec client canonique, conservation financière sur budget
-// incomplet, fermeture pendant la requête, bascule de compte pendant une réponse
-// retenue, puis lecture seule du secrétariat.
-const base=process.env.SOCLE_TEST_URL;assert.ok(base&&['127.0.0.1','localhost'].includes(new URL(base).hostname));
-const browser=await connectBrowser(base),tab=await browser.createSession(base);
-const key='__jobJourney21';let checks=0;
-const run=(source,label)=>tab.evaluate(source,'journey:'+label);
-const capture=async name=>{const shot=await tab.call('Page.captureScreenshot',{format:'png'});writeFileSync(new URL('./'+name+'.png',import.meta.url),Buffer.from(shot.data,'base64'));console.log('CAPTURE '+name+'.png')};
-async function api(path,method='GET',data){return run(`fetch(${JSON.stringify(path)},{method:${JSON.stringify(method)},headers:{'content-type':'application/json'},${data===undefined?'':`body:JSON.stringify(${JSON.stringify(data)}),`}}).then(async r=>{const b=await r.json().catch(()=>null);if(!r.ok)throw Error(JSON.stringify(b));return b})`,'api-'+path)}
+// Lot 21 only: use the real contact directory, quote editor and chantier navigation
+// against the Browser Gate's disposable database. Network/overlay/account races
+// belong to browser-job-safety-21.mjs; this suite does not simulate their success.
+const base=process.env.SOCLE_TEST_URL;
+assert.ok(base&&['127.0.0.1','localhost','[::1]'].includes(new URL(base).hostname),'Local disposable Browser Gate only.');
+const browser=await connectBrowser(base),tab=await browser.createSession(base),token=randomUUID();
+let touch=false,checks=0,organizationId='';
+const run=(source,label)=>tab.evaluate(source,'journey-21:'+label);
+async function api(path,method='GET',data){
+  const result=await run(`fetch(${JSON.stringify(path)},{cache:'no-store',method:${JSON.stringify(method)},headers:{'content-type':'application/json','x-socle-organization-id':${JSON.stringify(organizationId)}},${data===undefined?'':`body:JSON.stringify(${JSON.stringify(data)}),`}}).then(async r=>({status:r.status,body:await r.json().catch(()=>null)}))`,'api-'+path);
+  assert.ok(result.status>=200&&result.status<300,path+' HTTP'+result.status+' '+JSON.stringify(result.body));
+  return result.body;
+}
+function pass(label){checks++;console.log('PASS '+label)}
 async function viewport(width){
-  await tab.call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:width<=412});
-  await tab.call('Emulation.setTouchEmulationEnabled',{enabled:width<=412});
+  touch=width<=412;
+  await tab.call('Emulation.setDeviceMetricsOverride',{width,height:1000,deviceScaleFactor:1,mobile:touch});
+  await tab.call('Emulation.setTouchEmulationEnabled',{enabled:touch});
 }
-async function saveButton(width){
-  const point=await run(`(()=>{const e=document.querySelector('#modalbody .modal-actions button.primary');if(!e)throw Error('Bouton de sauvegarde absent');e.scrollIntoView({block:'center'});const r=e.getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()`,'save-point');
-  if(width<=412){await tab.call('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[point]});await tab.call('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]})}
-  else{await tab.call('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...point});await tab.call('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...point})}
+async function click(expression,label){
+  const point=await waitFor(()=>run(`(()=>{const e=${expression};if(!e||e.disabled||e.getAttribute('aria-disabled')==='true')return null;e.scrollIntoView({block:'center',inline:'nearest'});const r=e.getBoundingClientRect(),p={x:r.x+r.width/2,y:r.y+r.height/2},top=document.elementFromPoint(p.x,p.y);return r.width>0&&r.height>0&&(top===e||e.contains(top))?{...p,control:{tag:e.tagName,text:e.textContent.trim().slice(0,100),onclick:e.getAttribute('onclick'),action:e.dataset.action||'',id:e.id}}:null})()`,label+'-point'),'Visible unobscured control: '+label);
+  console.log('CLICK '+label+' '+JSON.stringify(point.control));
+  const coordinates={x:point.x,y:point.y};
+  if(touch){await tab.call('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[coordinates]});await tab.call('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]})}
+  else{await tab.call('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...coordinates});await tab.call('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...coordinates})}
 }
-async function loginCookie(email){const status=await run(`fetch('/__local-test/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({email:${JSON.stringify(email)}})}).then(r=>r.status)`,'login-cookie');assert.equal(status,204,'Identité locale '+email+' disponible.')}
-async function currentIdentity(){return run('({userId:String(globalThis.socleCurrentAccess?.userId||""),role:globalThis.socleCurrentAccess?.roleCode,owner:Boolean(globalThis.socleCurrentAccess?.owner)})','identity')}
-async function switchTo(email,role){await loginCookie(email);await run('loadWorkspace()','load-workspace');await waitFor(()=>run(`globalThis.socleCurrentAccess?.roleCode===${JSON.stringify(role)}`,'role-settled'),'Rôle authentifié '+role);return currentIdentity()}
-let installed=false,jobId=null,partialId=null,primaryError;
-try{
-  await tab.navigate(new URL('/health',base).href);await loginCookie('direction@batinova.example');
-  await tab.navigate(base);await waitForApp(tab);
-  const owner=await currentIdentity();assert.equal(owner.owner,true,'Session propriétaire requise pour la qualification intégrée.');
-
-  const customer=(await api('/api/customers','POST',{companyName:'QA21 qualification intégrée',street:'Rue de la Qualification 21'})).customer;
-  assert.ok(customer?.id,'Client canonique réel créé.');
-
-  // --- 1. Création avec client canonique (PC 1440) ---
-  await viewport(1440);
-  await run('jobForm()','open-create');
-  await waitFor(()=>run('Boolean(document.querySelector("#modal[open] form [name=name]"))','create-form'),'Formulaire chantier ouvert');
-  const created=await run(`(()=>{
-    const form=document.querySelector('#modalbody form');if(!form.dataset.commercialJob)throw Error('Formulaire commercial attendu');
-    const set=(name,value)=>{const field=form.querySelector('[name="'+name+'"]');if(!field)return false;field.value=String(value);field.dispatchEvent(new Event('input',{bubbles:true}));return true};
-    const select=form.querySelector('[name=customerId]');select.value=${JSON.stringify(String(customer.id))};select.dispatchEvent(new Event('change',{bubbles:true}));
-    set('name','QA21 qualification intégrée');set('type','Rénovation');set('town','Namur');set('address','Rue de la Qualification 21');
-    return {valid:form.checkValidity(),invalid:[...form.querySelectorAll(':invalid')].map(field=>field.name),jobId:String(form._jobContext.id)};
-  })()`,'fill-create');
-  assert.equal(created.valid,true,'Formulaire de création valide : '+created.invalid.join(', '));
-  await capture('job-21-creation-1440');
-  await saveButton(1440);
-  await waitFor(()=>run('!document.querySelector("#modal[open]")','create-closed'),'Création enregistrée');
-  await waitFor(()=>run('!saveRunning&&!saveFailed&&workspaceSnapshot()===savedSnapshot','create-persisted'),'Création reçue par le serveur');
-  jobId=created.jobId;
-  const afterCreate=(await api('/api/state')).state.jobs.filter(job=>String(job.id)===jobId);
-  assert.equal(afterCreate.length,1,'Création unique');assert.equal(String(afterCreate[0].customerId),String(customer.id),'Client canonique conservé');
-  checks++;console.log('PASS 1/5 création avec client canonique (1440)');
-
-  // --- 2. Budget financier incomplet : toutes les valeurs présentes conservées ---
-  const finance={labourBudget:750,materials:88.5,subcontracting:40,other:3,hourlyCost:39,adjustments:[{amount:11,note:'Ajustement intégré'}],supplierInvoices:120,customLedger:{keep:['a']}};
-  const state=await api('/api/state');
-  state.state.jobs.push({id:'QA21-journey-partial',name:'QA21 budget incomplet',customerId:customer.id,client:customer.companyName||'QA21 qualification intégrée',type:'Rénovation',finance:structuredClone(finance),notes:[{text:'Conserver'}],customField:{integrated:true}});
-  await api('/api/state','PUT',{revision:state.revision,state:state.state});
-  await tab.reload();await waitForApp(tab);viewport(1440);
-  partialId='QA21-journey-partial';
-  await run(`jobForm('QA21-journey-partial')`,'open-partial');
-  await waitFor(()=>run('Boolean(document.querySelector("#modal[open] [name=name]"))','partial-form'),'Formulaire budget incomplet ouvert');
-  await capture('job-21-finance-1440');
-  await run(`(()=>{const e=document.querySelector('#modalbody [name=name]');e.value='QA21 budget incomplet conservé';e.dispatchEvent(new Event('input',{bubbles:true}))})()`,'rename-partial');
-  await saveButton(1440);
-  await waitFor(()=>run('!document.querySelector("#modal[open]")','partial-closed'),'Budget incomplet enregistré');
-  await waitFor(()=>run('!saveRunning&&!saveFailed&&workspaceSnapshot()===savedSnapshot','partial-persisted'),'Budget incomplet reçu par le serveur');
-  const partial=(await api('/api/state')).state.jobs.filter(job=>String(job.id)===partialId);
-  assert.equal(partial.length,1,'Aucun doublon sur budget incomplet');
-  assert.equal(partial[0].finance.labourBudget,750);assert.equal(partial[0].finance.materials,88.5);
-  assert.equal(partial[0].finance.subcontracting,40);assert.equal(partial[0].finance.other,3);
-  assert.equal(partial[0].finance.hourlyCost,39);assert.deepEqual(partial[0].finance.adjustments,[{amount:11,note:'Ajustement intégré'}]);
-  assert.equal(partial[0].finance.supplierInvoices,120);assert.deepEqual(partial[0].finance.customLedger,{keep:['a']});
-  assert.deepEqual(partial[0].customField,{integrated:true});
-  checks++;console.log('PASS 2/5 budget incomplet : valeurs présentes et extensions conservées (1440)');
-
-  // --- 3. Fermeture pendant la requête : jamais de doublon ---
-  await run('jobForm()','open-close-case');
-  const closing='QA21 fermeture intégrée '+Date.now();
-  await run(`(()=>{const f=document.querySelector('#modalbody form'),s=f.querySelector('[name=customerId]');s.value=${JSON.stringify(String(customer.id))};s.dispatchEvent(new Event('change',{bubbles:true}));const set=(n,v)=>{const e=f.querySelector('[name='+n+']');e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}))};set('name',${JSON.stringify(closing)});set('type','Rénovation');set('town','Namur');f.requestSubmit()})()`,'submit-close-case');
-  await run(`(()=>{const m=document.querySelector('#modal');if(m)m.close?.();if(m)m.removeAttribute('open')})()`,'close-during-request');
-  await new Promise(resolve=>setTimeout(resolve,1500));
-  const closed=(await api('/api/state')).state.jobs.filter(job=>job.name===closing);
-  assert.ok(closed.length<=1,'La fermeture pendant la requête ne duplique jamais le chantier');
-  checks++;console.log('PASS 3/5 fermeture pendant la requête ('+closed.length+' chantier, 1440)');
-
-  // --- 4. Bascule de compte pendant une réponse retenue ---
-  await viewport(1440);
-  await run('jobForm()','open-switch-case');
-  await waitFor(()=>run('Boolean(document.querySelector("#modal[open] form [name=name]"))','switch-form'),'Formulaire bascule ouvert');
-  const probe=await run(`(()=>{
-    const form=document.querySelector('#modalbody form'),jobId=String(form._jobContext.id);
-    const p={jobId,originalJson:serverJson,originalToast:toast,originalSave:commercialSaveJob,toasts:[],captured:null,released:false,settled:false,error:null};
-    let release;p.hold=new Promise(resolve=>{release=resolve});p.release=()=>{if(!p.released){p.released=true;release()}};
-    p.jsonWrapper=async function(url,options={}){const result=await p.originalJson.apply(this,arguments);const u=new URL(String(url),location.href);if(u.origin===location.origin&&u.pathname==='/api/state'&&String(options.method||'GET').toUpperCase()==='PUT'){let payload;try{payload=JSON.parse(options.body)}catch{}if(payload?.state?.jobs?.some(job=>String(job.id)===p.jobId)){if(p.captured)throw Error('Double PUT');p.captured=result;await p.hold}}return result};
-    p.toastWrapper=function(message){p.toasts.push(String(message));return p.originalToast.apply(this,arguments)};
-    p.saveWrapper=function(){p.promise=Promise.resolve(p.originalSave.apply(this,arguments)).then(()=>{p.settled=true},error=>{p.error=String((error&&error.message)||error);p.settled=true});return p.promise};
-    serverJson=p.jsonWrapper;toast=p.toastWrapper;commercialSaveJob=p.saveWrapper;
-    const s=form.querySelector('[name=customerId]');s.value=${JSON.stringify(String(customer.id))};s.dispatchEvent(new Event('change',{bubbles:true}));
-    const n=form.querySelector('[name=name]');n.value='QA21 bascule 21 '+Date.now();n.dispatchEvent(new Event('input',{bubbles:true}));
-    const t=form.querySelector('[name=type]');t.value='Rénovation';t.dispatchEvent(new Event('input',{bubbles:true}));
-    const w=form.querySelector('[name=town]');w.value='Namur';w.dispatchEvent(new Event('input',{bubbles:true}));
-    globalThis[${JSON.stringify(key)}]=p;return {jobId,valid:form.checkValidity()};
-  })()`,'install-switch-barrier');
-  installed=true;
-  assert.equal(probe.valid,true,'Formulaire de bascule valide');
-  await run('document.querySelector("#modalbody form").requestSubmit()','submit-switch');
-  await waitFor(()=>run(`Boolean(globalThis[${JSON.stringify(key)}].captured?.revision)`,'switch-captured'),'Réponse réelle du PUT reçue avant sa continuation',20000);
-  const held=await run(`({revision:globalThis[${JSON.stringify(key)}].captured.revision,settled:globalThis[${JSON.stringify(key)}].settled})`,'held-state');
-  assert.equal(held.settled,false,'Résultat retenu avant continuation');
-  const accounting=await switchTo('batxl.accounting@simulation.invalid','ACCOUNTING');
-  assert.notEqual(accounting.userId,owner.userId,'Acteur réellement changé');
-  await waitFor(()=>run("Boolean(document.querySelector('#main')?.children.length)",'accounting-view'),'Vue secrétariat rendue');
-  await capture('job-21-secretariat-1440');
-  const before=await run(`(()=>{const p=globalThis[${JSON.stringify(key)}];return{ids:jobs.map(job=>String(job.id)),snapshot:workspaceSnapshot(),toasts:p.toasts.slice()}})()`,'before-release');
-  assert.equal(before.ids.includes(probe.jobId),false,'Le chantier propriétaire n’est pas déjà dans la vue secrétariat');
-  const released=await run(`(async()=>{const p=globalThis[${JSON.stringify(key)}];p.release();await p.promise;return{ids:jobs.map(job=>String(job.id)),snapshot:workspaceSnapshot(),toasts:p.toasts.slice(),settled:p.settled,error:p.error,userId:String(globalThis.socleCurrentAccess?.userId||'')}})()`,'release-switch');
-  assert.equal(released.userId,accounting.userId,'Libération dans la session du secrétariat');
-  assert.ok(released.settled&&!released.error,'Continuation de sauvegarde sans exception');
-  assert.deepEqual(released.ids,before.ids,'Aucune injection dans la projection secrétariat');
-  assert.equal(released.snapshot,before.snapshot,'Projection secrétariat inchangée');
-  assert.equal(released.toasts.some(text=>/chantier.{0,40}enregistr/i.test(text)),false,'Aucune confirmation propriétaire pour le secrétariat');
-  const refused=await run(`fetch('/api/state',{method:'PUT',headers:{'content-type':'application/json'},body:JSON.stringify({revision:${held.revision},state:JSON.parse(workspaceSnapshot())})}).then(r=>r.status)`,'secretariat-write');
-  assert.equal(refused,403,'Secrétariat en lecture seule sur le dossier global');
-  checks++;console.log('PASS 4/5 bascule de compte pendant la requête + secrétariat lecture seule (403)');
-
-  // Restaurer les enveloppes du cas bascule avant le parcours mobile : sinon le PUT
-  // mobile est encore intercepté par le garde encore actif et rejeté (« Double PUT »).
-  await run(`(()=>{const p=globalThis[${JSON.stringify(key)}];if(!p)return;if(serverJson===p.jsonWrapper)serverJson=p.originalJson;if(toast===p.toastWrapper)toast=p.originalToast;if(commercialSaveJob===p.saveWrapper)commercialSaveJob=p.originalSave})()`,'restore-switch-wrappers');
-
-  // --- 5. Parcours mobile 412 avec capture finale ---
-  const restored=await switchTo('direction@batinova.example','OWNER');
-  assert.equal(restored.userId,owner.userId,'Propriétaire rétabli');
-  await viewport(412);
-  await run('jobForm()','open-mobile');
-  await waitFor(()=>run('Boolean(document.querySelector("#modal[open] form [name=name]"))','mobile-form'),'Formulaire mobile ouvert');
-  const mobile=await run(`(()=>{const f=document.querySelector('#modalbody form'),s=f.querySelector('[name=customerId]');s.value=${JSON.stringify(String(customer.id))};s.dispatchEvent(new Event('change',{bubbles:true}));const set=(n,v)=>{const e=f.querySelector('[name='+n+']');e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}))};set('name','QA21 mobile 412 '+Date.now());set('type','Rénovation');set('town','Namur');const r=f.getBoundingClientRect();return{jobId:String(f._jobContext.id),valid:f.checkValidity(),width:Math.round(r.width),overflow:document.documentElement.scrollWidth>window.innerWidth+1}})()`,'fill-mobile');
-  assert.equal(mobile.valid,true,'Formulaire mobile valide');
-  await capture('job-21-mobile-412');
-  await saveButton(412);
-  await waitFor(()=>run('!document.querySelector("#modal[open]")','mobile-closed'),'Création mobile enregistrée');
-  await waitFor(()=>run('!saveRunning&&!saveFailed&&workspaceSnapshot()===savedSnapshot','mobile-persisted'),'Création mobile reçue par le serveur');
-  const mobileSaved=(await api('/api/state')).state.jobs.filter(job=>String(job.id)===mobile.jobId);
-  assert.equal(mobileSaved.length,1,'Création mobile unique');assert.equal(String(mobileSaved[0].customerId),String(customer.id));
-  checks++;console.log('PASS 5/5 création mobile 412 ('+mobile.width+'px, débordement horizontal='+mobile.overflow+')');
-
-  console.log('PASS '+checks+' parcours intégrés lot 21 (captures 1440 et 412)');
-}catch(error){
-  primaryError=error;
-  const shot=await tab.call('Page.captureScreenshot',{format:'png'}).catch(()=>null);
-  if(shot)writeFileSync(new URL('./job-21-journey-failure.png',import.meta.url),Buffer.from(shot.data,'base64'));
-  throw error;
-}finally{
-  if(installed){
-    try{
-      await run(`(async()=>{const p=globalThis[${JSON.stringify(key)}];if(!p)return;p.release();try{if(p.promise)await Promise.race([p.promise,new Promise(resolve=>setTimeout(resolve,5000))])}finally{if(serverJson===p.jsonWrapper)serverJson=p.originalJson;if(toast===p.toastWrapper)toast=p.originalToast;if(commercialSaveJob===p.saveWrapper)commercialSaveJob=p.originalSave;delete globalThis[${JSON.stringify(key)}]}})()`,'restore-wrappers');
-      await run("if(document.querySelector('#modal')?.open)closeModal()",'close-probe-form');
-    }catch(cleanupError){if(!primaryError)throw cleanupError;console.error('Nettoyage parcours intégré incomplet : '+cleanupError.message);}
+async function capture(name){const shot=await tab.call('Page.captureScreenshot',{format:'png'});writeFileSync(new URL('./job-21-'+name+'.png',import.meta.url),Buffer.from(shot.data,'base64'));console.log('CAPTURE job-21-'+name+'.png')}
+async function noOverflow(label){
+  const geometry=await run(`(()=>{const form=document.querySelector('#modal[open] form'),dialog=document.querySelector('#modal[open]'),rect=dialog?.getBoundingClientRect();return{width:innerWidth,page:document.documentElement.scrollWidth,form:form?{client:form.clientWidth,scroll:form.scrollWidth}:null,dialog:rect?{left:rect.left,right:rect.right}:null}})()`,'overflow-'+label);
+  assert.ok(geometry.page<=geometry.width+1,'No horizontal page overflow '+label+' '+JSON.stringify(geometry));
+  if(geometry.form)assert.ok(geometry.form.scroll<=geometry.form.client+1,'No horizontal form overflow '+label+' '+JSON.stringify(geometry));
+  if(geometry.dialog)assert.ok(geometry.dialog.left>=-1&&geometry.dialog.right<=geometry.width+1,'Dialog fits viewport '+label+' '+JSON.stringify(geometry));
+}
+async function route(name){
+  if(!touch)await click(`document.querySelector('#nav [data-nav-route=${name}]')`,'desktop-'+name);
+  else{
+    const direct=`document.querySelector('#socleMobileNav [data-mobile-route=${name}]')`;
+    if(await run(`Boolean(${direct}?.getClientRects().length)`,'mobile-direct-'+name))await click(direct,'mobile-'+name);
+    else{await click('document.querySelector("#socleMobileNav [data-mobile-menu-toggle]")','mobile-more');await click(`document.querySelector('#socleMobileMoreDialog[open] [data-mobile-route=${name}]')`,'mobile-more-'+name)}
   }
-  await browser.close();
+  await waitFor(()=>run(`view===${JSON.stringify(name)}`,'route-'+name),'Actual navigation to '+name);
+  if(name==='contacts')await waitFor(()=>run('commercialDirectoryState.status==="ready"','directory-ready'),'Canonical directory ready');
 }
+async function openContact(contact,status='active'){
+  await route('contacts');
+  await run(`(()=>{const filter=document.querySelector('#main select[aria-label="État des fiches"]');filter.value=${JSON.stringify(status)};filter.dispatchEvent(new Event('change',{bubbles:true}));const search=document.querySelector('#main .catalogue-tools input');search.value=${JSON.stringify(contact.reference||contact.name)};search.dispatchEvent(new Event('input',{bubbles:true}))})()`,'find-fixture-contact');
+  await click(`[...document.querySelectorAll('#main [data-contact-id]')].find(e=>e.dataset.contactId===${JSON.stringify(String(contact.id))})`,'open-fixture-contact');
+  await waitFor(()=>run(`view==='contact'&&String(currentContactId)===${JSON.stringify(String(contact.id))}&&iaCQuotesState==='ready'&&commercialDirectoryState.status==='ready'`,'contact-ready'),'Source contact and commercial history loaded');
+}
+async function formReady(kind){
+  const selector=kind==='job'?'form[data-commercial-job]':kind==='quote'?'form.quote-editor':'form[data-commercial-contact]';
+  await waitFor(()=>run(`document.querySelector('#modal[open] ${selector}')?.dataset.sxForm==='1'`,'form-ready-'+kind),'Actual '+kind+' form and draft controller ready');
+}
+async function fill(values,selector='#modalbody form'){
+  return run(`(()=>{const f=document.querySelector(${JSON.stringify(selector)});if(!f)throw Error('Form missing');for(const [name,value]of Object.entries(${JSON.stringify(values)})){const field=f.querySelector('[name="'+name+'"]');if(!field)throw Error('Missing field '+name);field.value=String(value);field.dispatchEvent(new Event(field.tagName==='SELECT'?'change':'input',{bubbles:true}))}return{valid:f.checkValidity(),invalid:[...f.querySelectorAll(':invalid')].map(e=>e.name)}})()`,'fill-form');
+}
+async function settled(){await waitFor(()=>run('storageReady&&!saveRunning&&!saveFailed&&!storageConflict&&workspaceSnapshot()===savedSnapshot','workspace-settled'),'Workspace acknowledged without conflict')}
+async function saveJob(){
+  const valid=await run('document.querySelector("#modalbody form").checkValidity()','job-valid');assert.equal(valid,true,'Real job form valid before submit');
+  await click('document.querySelector("#modalbody form .modal-actions button.primary")','save-job');
+  await waitFor(()=>run('!document.querySelector("#modal[open]")||Boolean(document.querySelector("#commercialJobError")?.textContent)','job-result'),'Job save result');
+  assert.equal(await run('document.querySelector("#commercialJobError")?.textContent||""','job-error'),'');
+  await settled();
+}
+async function saveQuote(){
+  assert.equal(await run('document.querySelector("#modalbody form.quote-editor").checkValidity()','quote-valid'),true,'Real quote form valid');
+  for(let i=0;i<6;i++){
+    const next='[...document.querySelectorAll("#modalbody button")].find(e=>e.getClientRects().length&&!e.disabled&&/^Suivant/.test(e.textContent.trim()))';
+    if(!await run(`Boolean(${next})`,'quote-next-present'))break;
+    await click(next,'quote-next');
+  }
+  await click('[...document.querySelectorAll("#modalbody form button")].find(e=>e.getClientRects().length&&!e.disabled&&/Enregistrer le devis/.test(e.textContent))','save-quote');
+  await waitFor(()=>run('!document.querySelector("#modal[open]")||Boolean(document.querySelector("#quoteError")?.textContent)','quote-result'),'Quote save result');
+  assert.equal(await run('document.querySelector("#quoteError")?.textContent||""','quote-error'),'');
+}
+async function quoteFromContact(quoteId){
+  await click(`[...document.querySelectorAll('#main [data-contact-quote-id]')].find(e=>e.dataset.contactQuoteId===${JSON.stringify(String(quoteId))})`,'contact-quote-link');
+  await waitFor(()=>run('Boolean(document.querySelector("#modal[open] .quote-paper"))','quote-detail'),'Saved quote opens from contact');
+  await click('[...document.querySelectorAll("#modalbody button")].find(e=>e.getClientRects().length&&!e.disabled&&/^Modifier/.test(e.textContent.trim()))','edit-saved-quote');
+  await formReady('quote');
+}
+async function newJob(customerId,name){
+  await route('jobs');
+  await click('[...document.querySelectorAll("#main button")].find(e=>e.getClientRects().length&&(e.getAttribute("onclick")==="jobForm()"||e.dataset.action==="create"))','new-job-from-navigation');
+  await formReady('job');
+  const values=await fill({customerId,name,type:'Rénovation',town:'Namur',address:'Rue du parcours 21'});
+  assert.equal(values.valid,true,'Creation valid: '+values.invalid.join(', '));
+  return run('String(document.querySelector("#modalbody form")._jobContext.id)','new-job-id');
+}
+async function setContactActive(contact,active){
+  await openContact(contact,active?'inactive':'active');
+  await click('document.querySelector("#main .contact-actions [data-commercial-contact-edit]")','edit-source-contact');
+  await formReady('contact');
+  const current=await run('document.querySelector("#modalbody input[name=active]").checked','source-active');
+  assert.equal(current,!active,'Source begins with expected status');
+  await click('document.querySelector("#modalbody input[name=active]")','toggle-source-status');
+  await click('document.querySelector("#modalbody form .modal-actions button.primary")','save-source-status');
+  await waitFor(()=>run('!document.querySelector("#modal[open]")||Boolean(document.querySelector("#commercialContactError")?.textContent)','source-status-result'),'Source status result');
+  assert.equal(await run('document.querySelector("#commercialContactError")?.textContent||""','source-status-error'),'');
+  assert.equal((await api('/api/state')).state.contacts.find(c=>String(c.id)===String(contact.id)).active,active);
+}
+
+try{
+  await tab.call('Page.addScriptToEvaluateOnNewDocument',{source:`globalThis.__journey21Errors=[];globalThis.__journey21Toasts=[];addEventListener('error',e=>__journey21Errors.push(String(e.error?.stack||e.message)));addEventListener('unhandledrejection',e=>__journey21Errors.push(String(e.reason?.stack||e.reason)));addEventListener('DOMContentLoaded',()=>{const t=document.querySelector('#toast');if(t)new MutationObserver(()=>{const text=t.textContent.trim();if(text&&__journey21Toasts.at(-1)!==text)__journey21Toasts.push(text)}).observe(t,{subtree:true,childList:true,characterData:true})})`});
+  await tab.navigate(new URL('/health',base).href);
+  await api('/__local-test/login','POST',{email:'direction@batinova.example'});
+  const initial=await api('/api/state');organizationId=String(initial.organizationId);
+  assert.equal(initial.access.roleCode,'OWNER','Owner fixture required');
+  await tab.navigate(base);await waitForApp(tab,initial.access.userId);await viewport(1440);
+  await route('contacts');
+  if(await run('Boolean(document.querySelector("#commercialDirectoryBootstrap"))','bootstrap-present')){
+    await click('document.querySelector("#commercialDirectoryBootstrap")','connect-existing-fixture-contacts');
+    await waitFor(()=>run('commercialDirectoryState.initialized&&commercialDirectoryState.status==="ready"','bootstrap-ready'),'Existing contacts linked through owner action');
+  }
+  const stateAfterBootstrap=(await api('/api/state')).state;
+  const customers=(await api('/api/customers?limit=250')).customers;
+  const customer=customers.find(c=>!c.archivedAt&&stateAfterBootstrap.contacts.some(contact=>String(contact.id)===String(c.sourceContactId)&&contact.active!==false&&contact.active!==0&&!['inactive','archived','deleted'].includes(String(contact.status||'').toLowerCase())&&(contact.roles||[]).includes('Client')&&contact.reference));
+  assert.ok(customer,'An existing active fixture Client with canonical mapping is required; no substitute seed is injected.');
+  const contact=stateAfterBootstrap.contacts.find(c=>String(c.id)===String(customer.sourceContactId));
+
+  // Contact -> real quote action. The quote initially has no project.
+  await openContact(contact);
+  await click('document.querySelector("#main [data-contact-create-quote]")','create-quote-from-contact');
+  await formReady('quote');
+  assert.equal(await run('document.querySelector("#modalbody [name=customerId]").value','quote-source-customer'),String(customer.id));
+  const quoteTitle='QA21 parcours '+token;
+  const quoteValues=await fill({title:quoteTitle,clientAddress:'Rue du parcours 21, Namur',label:'Travail lot 21',description:'Qualification locale',qty:2,unit:'h',price:123.45,vat:6});
+  assert.equal(quoteValues.valid,true,'Quote data valid: '+quoteValues.invalid.join(', '));
+  await capture('contact-devis-1440');await saveQuote();
+  let quote=(await api('/api/quotes')).quotes.find(q=>q.title===quoteTitle);assert.ok(quote,'Quote exists on server');
+  assert.equal(String(quote.customerId),String(customer.id));assert.equal(quote.projectId??null,null,'A quote alone never creates a chantier');
+  const originalLines=structuredClone(quote.lines);
+  assert.equal((await api('/api/state')).state.jobs.length,stateAfterBootstrap.jobs.length,'Quote creation leaves chantier count unchanged');
+  pass('contact existant -> devis canonique par navigation réelle');
+
+  // Create the chantier from its real route, then link the existing quote via its editor.
+  const jobId=await newJob(customer.id,'QA21 chantier lié '+token);
+  await noOverflow('create-1440');await capture('creation-1440');await saveJob();
+  const created=(await api('/api/state')).state.jobs.filter(j=>String(j.id)===jobId);
+  assert.equal(created.length,1);assert.equal(String(created[0].customerId),String(customer.id));assert.equal(String(created[0].clientId),String(contact.id));
+  await openContact(contact);await quoteFromContact(quote.id);
+  const linkedValues=await fill({job:jobId});assert.equal(linkedValues.valid,true);
+  await saveQuote();quote=(await api('/api/quotes/'+encodeURIComponent(quote.id))).quote;
+  assert.equal(String(quote.projectId),jobId);assert.equal(String(quote.customerId),String(customer.id));assert.deepEqual(quote.lines,originalLines,'Linking a chantier preserves quote quantities and prices');
+  await tab.reload();await waitForApp(tab,initial.access.userId);await openContact(contact);
+  assert.ok(await run(`[...document.querySelectorAll('#main [data-contact-quote-id]')].some(e=>e.dataset.contactQuoteId===${JSON.stringify(String(quote.id))})`,'quote-history-link'),'Contact still links the exact saved quote after reload');
+  await click(`[...document.querySelectorAll('#main button')].find(e=>e.getAttribute('onclick')?.includes('openJobWorkspace')&&e.textContent.includes(${JSON.stringify(created[0].name)}))`,'contact-linked-chantier');
+  await waitFor(()=>run(`view==='jobWorkspace'&&String(currentJobId)===${JSON.stringify(jobId)}`,'linked-chantier-open'),'Contact link opens exact chantier');
+  await capture('contact-devis-chantier-1440');pass('devis -> chantier, liens canoniques persistés après rechargement');
+
+  // A real existing record with financial extensions: edit only selected budgets.
+  const beforeFinance=await api('/api/state'),financialJob=beforeFinance.state.jobs.find(j=>String(j.id)===jobId);
+  Object.assign(financialJob.finance,{plannedHours:10,labourBudget:750,materialsBudget:250,subcontractingBudget:90,otherBudget:15,materials:88.5,subcontracting:40,other:3,hourlyCost:39,adjustments:[{amount:11,note:'Historique conservé'}],supplierInvoices:120,customLedger:{keep:['lot21']}});
+  financialJob.customLot21={keep:true};await api('/api/state','PUT',{revision:beforeFinance.revision,state:beforeFinance.state});
+  await tab.reload();await waitForApp(tab,initial.access.userId);await settled();
+  const financeBaseline=(await api('/api/state')).state.jobs.find(j=>String(j.id)===jobId);
+  await run(`jobForm(${JSON.stringify(jobId)})`,'open-budget-form');await formReady('job');
+  await fill({plannedHours:14.5,labourBudget:1750.25,materialsBudget:640.75});
+  await capture('finance-1440');await saveJob();
+  const afterFinance=(await api('/api/state')).state.jobs.find(j=>String(j.id)===jobId);
+  assert.deepEqual(afterFinance.finance,{...financeBaseline.finance,plannedHours:14.5,labourBudget:1750.25,materialsBudget:640.75},'Only intentional budgets change; actual costs, other budgets and unknown fields remain exact');
+  assert.deepEqual(afterFinance.customLot21,{keep:true});assert.equal(String(afterFinance.customerId),String(customer.id));
+  pass('budgets volontairement modifiés, coûts et extensions conservés');
+
+  // Archive the real source Contact and preserve it only on its existing chantier.
+  await setContactActive(contact,false);
+  const archived=(await api('/api/customers/'+encodeURIComponent(customer.id)+'?includeArchived=1')).customer;
+  assert.ok(archived.archivedAt);assert.equal(String(archived.sourceContactId),String(contact.id));
+  await tab.reload();await waitForApp(tab,initial.access.userId);
+  await run(`jobForm(${JSON.stringify(jobId)})`,'open-inactive-client-job');await formReady('job');
+  const inactiveOption=await run('(()=>{const s=document.querySelector("#modalbody [name=customerId]");return{value:s.value,label:s.selectedOptions[0]?.textContent}})()','inactive-client-selected');
+  assert.equal(inactiveOption.value,String(customer.id));assert.match(inactiveOption.label,/inactive/i);
+  const retainedName='QA21 client inactif conservé '+token;await fill({name:retainedName});await capture('client-inactif-1440');await saveJob();
+  const retained=(await api('/api/state')).state.jobs.find(j=>String(j.id)===jobId);
+  assert.equal(retained.name,retainedName);assert.equal(String(retained.customerId),String(customer.id));assert.equal(String(retained.clientId),String(contact.id));assert.deepEqual(retained.finance,afterFinance.finance);
+  assert.deepEqual((await api('/api/quotes/'+encodeURIComponent(quote.id))).quote.lines,originalLines);
+  await route('jobs');await click('[...document.querySelectorAll("#main button")].find(e=>e.getClientRects().length&&(e.getAttribute("onclick")==="jobForm()"||e.dataset.action==="create"))','new-job-inactive-check');await formReady('job');
+  assert.equal(await run(`[...document.querySelector('#modalbody [name=customerId]').options].some(o=>o.value===${JSON.stringify(String(customer.id))})`,'inactive-absent-on-create'),false,'Archived source cannot be selected for a new chantier');
+  await click('document.querySelector("#modal[open] .modal-top .close")','close-inactive-new-form');
+  await setContactActive(contact,true);pass('client Contact inactif conservé sur ancien chantier et exclu des nouveaux');
+
+  // Touch navigation and real persistence at both narrow widths, with asserted geometry.
+  for(const width of [360,412]){
+    await viewport(width);await openContact(contact);await noOverflow('contact-'+width);
+    const mobileId=await newJob(customer.id,'QA21 mobile '+width+' '+token);
+    await noOverflow('job-'+width);await capture('mobile-'+width);await saveJob();
+    await tab.reload();await waitForApp(tab,initial.access.userId);
+    const mobile=(await api('/api/state')).state.jobs.filter(j=>String(j.id)===mobileId);
+    assert.equal(mobile.length,1);assert.equal(String(mobile[0].customerId),String(customer.id));assert.equal(String(mobile[0].clientId),String(contact.id));
+    await noOverflow('reloaded-'+width);pass('navigation tactile '+width+', aucun débordement, chantier unique après F5');
+  }
+  assert.deepEqual((await api('/api/state')).state.quotes,initial.state.quotes,'Original historical quotes remain exact throughout the real commercial journey');
+  console.log('PASS '+checks+' parcours commerciaux lot 21; PC1440, mobile360/412 émulés.');
+}catch(error){
+  console.log('JOURNEY_FAILURE_DIAGNOSTIC '+JSON.stringify(await run(`(()=>{const f=document.querySelector('#modalbody form');return{view,owner:globalThis.socleCurrentAccess?.owner,role:globalThis.socleCurrentAccess?.roleCode,storageReady,saveRunning,saveFailed,storageConflict,revision:storageRevision,snapshotClean:workspaceSnapshot()===savedSnapshot,directory:commercialDirectoryState.status,directoryError:commercialDirectoryState.error,modalOpen:Boolean(document.querySelector('#modal')?.open),form:f?{dataset:{...f.dataset},id:f.id}:null,errors:globalThis.__journey21Errors||[],toasts:globalThis.__journey21Toasts||[],controls:[...document.querySelectorAll('#main button')].filter(e=>e.getClientRects().length&&/nouveau chantier|créer un chantier/i.test(e.textContent)).map(e=>({text:e.textContent.trim(),onclick:e.getAttribute('onclick'),action:e.dataset.action||'',disabled:e.disabled}))}})()`,'failure-diagnostic').catch(e=>({diagnosticError:e.message}))));
+  await capture('journey-failure').catch(()=>{});throw error
+}finally{await browser.close()}

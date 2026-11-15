@@ -30,7 +30,18 @@ self.onmessage=async({data})=>{
   }else{
    zipBudget(data.buffer);const workbook=new ExcelJS.Workbook();await workbook.xlsx.load(data.buffer);
    if(workbook.worksheets.length>20)throw Error('Maximum 20 feuilles.');
-   for(const sheet of workbook.worksheets){if(sheet.rowCount>2001||sheet.columnCount>50)throw Error('Maximum 2 000 lignes de données et 50 colonnes.');const rows=[];sheet.eachRow({includeEmpty:false},row=>rows.push(row.values.slice(1).map(cell)));sheets.push({name:sheet.name,rows})}
+   for(const sheet of workbook.worksheets){
+    if(sheet.rowCount>2001||sheet.columnCount>50)throw Error('Maximum 2 000 lignes de données et 50 colonnes.');
+    const rows=[],numericCells=[];let referenceColumns=[];
+    sheet.eachRow({includeEmpty:false},row=>{
+     const values=row.values.slice(1);
+     if(!rows.length)referenceColumns=values.map((v,i)=>/^(reference|ref|code)$/.test(cell(v).normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim().toLowerCase())?i:-1).filter(i=>i>=0);
+     else for(const column of referenceColumns)if(typeof values[column]==='number')throw Error('La référence de la ligne '+row.number+' est une cellule numérique. Exportez les références en texte pour préserver leurs zéros initiaux.');
+     values.forEach((value,column)=>{if(typeof value==='number')numericCells.push({row:rows.length,column})});
+     rows.push(values.map(cell));
+    });
+    sheets.push({name:sheet.name,rows,numericCells});
+   }
   }
   if(sheets.some(s=>s.rows.length>2001||s.rows.some(r=>r.length>50||r.some(x=>String(x).length>1000))))throw Error('Fichier trop grand : maximum 2 000 lignes, 50 colonnes, cellules de 1 000 caractères.');
   self.postMessage({sheets});

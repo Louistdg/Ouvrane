@@ -25,3 +25,14 @@ body #main .v3-jobs > .home-block-title {grid-column:1/-1;}
  body #main [data-home-layout] [data-home-drop] {position:relative;flex:0 0 auto;width:100%;min-height:80px;}
 }
 @media(prefers-reduced-motion:reduce){body #main [data-home-layout] > [data-home-block] {transition:none;}}
+/* Default hierarchy only; saved widget geometry still wins within the board. */
+body.socle-v3[data-audit-route="home"] #main{display:flex;flex-direction:column}
+body.socle-v3[data-audit-route="home"] #main>.v3-intro{order:-3;margin-bottom:14px}
+body.socle-v3[data-audit-route="home"] #main>.home-layout-status{order:-2}
+body.socle-v3[data-audit-route="home"] #main>[data-home-layout]{order:-1}
+body.socle-v3[data-audit-route="home"] #main>.v4-strip{order:5}
+body.socle-v3[data-audit-route="home"] #main>.v4-home-connected{order:6}
+body.socle-v3 .home-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+body.socle-v3 .v4-home-connected summary{padding:14px 16px;cursor:pointer;font-weight:700}
+body.socle-v3 .v4-home-connected-body{padding:0 16px 14px}
+body.socle-v3 .v4-home-connected-body>p{margin:0 0 12px}

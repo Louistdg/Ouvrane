@@ -23,7 +23,7 @@ await esbuild.build({entryPoints:['scripts/plan-geometry-entry.js'],bundle:true,
 await fs.copyFile('node_modules/konva/konva.min.js','web/konva.js');
 await fs.copyFile('node_modules/papaparse/papaparse.min.js','web/papaparse.js');
 await fs.copyFile('node_modules/exceljs/dist/exceljs.min.js','web/exceljs.js');
-const names=['home-layout.js','home-layout.css','commercial-directory.css','commercial-directory.js','third-party-notices.html','tesseract.min.js.LICENSE.txt','worker.min.js.LICENSE.txt','assignment-assets.js','assignment-assets.css','task-stock.js','task-stock.css','measurement-tasks.js','task-preparations.js','task-preparations.css','work-packets.js','work-packets.css','plans.js','plans.css','plan-geometry.js','konva.js','supplier-imports.js','supplier-import-worker.js','papaparse.js','exceljs.js','measurement-procurement.js','tabulator.js','tabulator.css','measurement-desk.js','measurement-desk.css','SOCLE-MAQUETTE-GRIS-RELIEF.html','SOCLE-MAQUETTE-PETROLE-REFERENCE.html','SOCLE-MAQUETTE-CHARBON-REFERENCE.html','SOCLE-COMPARAISON-3-THEMES.html','v4.js','v4.css','alert-confirmation.js','team-composer.js','team-composer.css','design-tokens.css','audit-release.css','audit-release.js','v3-themes.js','v3-themes.css','v3-money.js','v3.js','v3.css','index.html','catalogue.html','style.css','organization.css','planning.css','ia-a-ui.css','field-journal.css','ui-foundation.css','stock-catalog-v2.css','stock-barcode.css','profile-avatar.css','mobile-nav.css','quote-roofing-metre.css','omnisearch.css','mobile-audit.css','offline.css','job-tabs-order.js','jobs-order.js','offline.js','offline-sw.js','document-triage.css','task-board.css','task-board.js','task-spatial-desk.css','task-spatial-desk.js','document-folders.js','app.js','cockpit.js','admin.js','business.js','refinement.js','permissions.js','organization.js','archives.js','realistic-demo.js','workflow-improvements.js','server-modules.js','field-workflows.js','quick-intervention.js','production-runtime.js','free-entry.js','contacts.js','quote-preproject.js','workspace-config.js','error-monitor.js','blank-workspace.js','partners.js','onboarding.js','procurement.js','local-test-auth.js','field-server.js','planning.js','planning-drag.js','documents-server.js','quote-visit-capture.js','supplier-invoice-reconciliation.js','supplier-allocations.js','supplier-invoice-pdf.js','document-triage.js','tesseract.js','tesseract-worker.js','tesseract-core-lstm.wasm.js','pdfjs.js','pdfjs-worker.mjs','project-hub.js','field-portal.js','ia-a-ui.js','field-journal.js','ui-foundation.js','stock-catalog-v2.js','stock-zxing.js','stock-barcode.js','delivery-scans.js','invite-activation.js','navigation-registry.js','profile-avatar.js','mobile-nav.js','roofing-metre.js','quote-roofing-metre.js','omnisearch.js','canvas-jobs.css','canvas-jobs.js','home-compact.js','design-system.css','ui-icons.js','breadcrumb.js','form-kit.js','table-tools.js','toast-action.js','feedback.js','trust.js','shortcuts.js','manifest.webmanifest','apple-touch-icon.png','icon-192.png','icon-512.png'];
+const names=['lazy-tools.js','project-models.js','project-models.css','model-viewer.min.js','model-viewer-LICENSE.txt','bank-connect.js','bank-return.js','bank-return.html','personal-time.js','personal-followup-ui.js','personal-followup-forms.js','personal-followup.css','sidebar-position.js','ouvrane-repere.css','ouvrane-login.html','ouvrane-login.css','ouvrane-login.js','ouvrane-01-eclipse.png','ouvrane-02-cuivre.png','ouvrane-03-lunaire.png','ouvrane-galaxy.png','ouvrane-relief.png','ouvrane-nacre.png','home-layout.js','home-layout.css','commercial-directory.css','commercial-directory.js','third-party-notices.html','tesseract.min.js.LICENSE.txt','worker.min.js.LICENSE.txt','assignment-assets.js','assignment-assets.css','task-stock.js','task-stock.css','measurement-tasks.js','task-preparations.js','task-preparations.css','work-packets.js','work-packets.css','plans.js','plans.css','plan-geometry.js','konva.js','supplier-imports.js','supplier-import-worker.js','papaparse.js','exceljs.js','measurement-procurement.js','tabulator.js','tabulator.css','measurement-desk.js','measurement-desk.css','SOCLE-MAQUETTE-GRIS-RELIEF.html','SOCLE-MAQUETTE-PETROLE-REFERENCE.html','SOCLE-MAQUETTE-CHARBON-REFERENCE.html','SOCLE-COMPARAISON-3-THEMES.html','v4.js','v4.css','alert-confirmation.js','team-composer.js','team-composer.css','design-tokens.css','audit-release.css','audit-release.js','v3-themes.js','v3-themes.css','v3-money.js','v3.js','v3.css','index.html','catalogue.html','style.css','organization.css','planning.css','ia-a-ui.css','field-journal.css','ui-foundation.css','stock-catalog-v2.css','stock-barcode.css','profile-avatar.css','mobile-nav.css','quote-roofing-metre.css','omnisearch.css','mobile-audit.css','offline.css','job-tabs-order.js','jobs-order.js','offline.js','offline-sw.js','document-triage.css','task-board.css','task-board.js','task-spatial-desk.css','task-spatial-desk.js','document-folders.js','app.js','cockpit.js','admin.js','business.js','refinement.js','permissions.js','organization.js','archives.js','realistic-demo.js','workflow-improvements.js','server-modules.js','field-workflows.js','quick-intervention.js','production-runtime.js','free-entry.js','contacts.js','quote-preproject.js','workspace-config.js','error-monitor.js','blank-workspace.js','partners.js','onboarding.js','procurement.js','local-test-auth.js','field-server.js','planning.js','planning-drag.js','documents-server.js','quote-visit-capture.js','supplier-invoice-reconciliation.js','supplier-allocations.js','supplier-invoice-pdf.js','document-triage.js','tesseract.js','tesseract-worker.js','tesseract-core-lstm.wasm.js','pdfjs.js','pdfjs-worker.mjs','project-hub.js','field-portal.js','ia-a-ui.js','field-journal.js','ui-foundation.js','stock-catalog-v2.js','stock-zxing.js','stock-barcode.js','delivery-scans.js','invite-activation.js','navigation-registry.js','profile-avatar.js','mobile-nav.js','roofing-metre.js','quote-roofing-metre.js','omnisearch.js','canvas-jobs.css','canvas-jobs.js','home-compact.js','design-system.css','ui-icons.js','breadcrumb.js','form-kit.js','table-tools.js','toast-action.js','feedback.js','trust.js','shortcuts.js','manifest.webmanifest','apple-touch-icon.png','icon-192.png','icon-512.png'];
 const files={};
 for(const name of names){
   const extension=name.slice(name.lastIndexOf('.'));
@@ -42,6 +42,7 @@ files['/socle.css']={body:(await esbuild.transform(cssNames.map(name=>files[name
 files['/index.html'].body=files['/index.html'].body.replace(/\s*<link rel="stylesheet" href="[^"]+">/g,'').replace('</head>','<link rel="stylesheet" href="/socle.css"></head>');
 // Version resource URLs so an already installed PWA cannot mix releases.
 const assetVersion=path=>createHash('sha256').update(files[path].body).digest('hex').slice(0,16);
+files['/lazy-tools.js'].body='globalThis.socleLazyAssetUrls='+JSON.stringify({tabulator:'/tabulator.js?v='+assetVersion('/tabulator.js')})+';\n'+files['/lazy-tools.js'].body;
 files['/index.html'].body=files['/index.html'].body
   .replace('href="/socle.css"','href="/socle.css?v='+assetVersion('/socle.css')+'"')
   .replace(/(<script\b[^>]*\bsrc=")([^"?]+)(")/g,(match,before,source,after)=>{
@@ -49,6 +50,7 @@ files['/index.html'].body=files['/index.html'].body
     return files[path]&&path!=='/production-runtime.js'?before+source+'?v='+assetVersion(path)+after:match;
   });
 files['/tessdata/fra.traineddata.gz']={body:(await fs.readFile('web/tessdata/fra.traineddata.gz')).toString('base64'),type:'application/gzip',encoding:'base64'};
+for(const asset of Object.values(files))asset.sha256=createHash('sha256').update(asset.encoding==='base64'?Buffer.from(asset.body,'base64'):asset.body).digest('hex');
 await fs.rm('dist',{recursive:true,force:true});
 await fs.mkdir('dist/server',{recursive:true});
 await fs.mkdir('dist/.openai',{recursive:true});
@@ -61,11 +63,16 @@ await esbuild.build({entryPoints:['scripts/measurement-engine-entry.js'],bundle:
 await fs.copyFile('worker/measurements.js','dist/server/measurements.js');
 await fs.copyFile('worker/measurement-procurement.js','dist/server/measurement-procurement.js');
 await fs.copyFile('worker/supplier-price-imports.js','dist/server/supplier-price-imports.js');
-await fs.copyFile('.openai/hosting.json','dist/.openai/hosting.json');
+// Le manifeste d'hébergement OpenAI est dans .gitignore, donc absent de tout transfert
+// du dépôt. Il ne sert qu'à la publication OpenAI, pas au runtime local ni aux tests :
+// son absence ne doit pas interrompre la construction.
+try{await fs.copyFile('.openai/hosting.json','dist/.openai/hosting.json');}
+catch{console.warn('build: .openai/hosting.json absent, copie ignorée (fichier ignoré par git).');}
 console.log('Worker and interface built.');
 
 await fs.copyFile('worker/plans.js','dist/server/plans.js');
-await fs.copyFile('worker/plan-geometry.js','dist/server/plan-geometry.js');
+await esbuild.build({entryPoints:['worker/plan-geometry.js'],bundle:true,format:'esm',platform:'node',target:'es2020',outfile:'dist/server/plan-geometry.js'});
+await esbuild.build({entryPoints:['worker/plan-regions.js'],bundle:true,format:'esm',platform:'node',target:'es2020',outfile:'dist/server/plan-regions.js'});
 
 await fs.copyFile('worker/work-packets.js','dist/server/work-packets.js');
 
@@ -82,3 +89,26 @@ await fs.copyFile('worker/planning-replan-guard.js','dist/server/planning-replan
 await fs.copyFile('worker/commercial-scope.js','dist/server/commercial-scope.js');
 
 await fs.copyFile('worker/commercial-directory.js','dist/server/commercial-directory.js');
+
+await fs.copyFile('worker/contact-files.js','dist/server/contact-files.js');
+
+await fs.copyFile('worker/personal-calendar.js','dist/server/personal-calendar.js');
+await fs.copyFile('worker/personal-followup-policy.js','dist/server/personal-followup-policy.js');
+
+await fs.copyFile('worker/personal-followup.js','dist/server/personal-followup.js');
+
+await fs.copyFile('worker/purchase-receipts.js','dist/server/purchase-receipts.js');
+await fs.copyFile('worker/bank-connections.js','dist/server/bank-connections.js');
+// worker/bank-provider-enable.js (15 174 octets) a été écarté de tous les transferts
+// avec le motif « cle-privee » : l'intégration Enable Banking signe ses jetons avec une
+// clé privée, et le fichier la contient. Il doit être restauré depuis une sauvegarde,
+// puis scindé (code dans git, clé dans .env). En attendant, sa copie est facultative.
+try{await fs.copyFile('worker/bank-provider-enable.js','dist/server/bank-provider-enable.js');}
+catch{console.warn('build: worker/bank-provider-enable.js absent (exclu du transfert, motif cle-privee).');}
+await fs.copyFile('worker/project-models.js','dist/server/project-models.js');
+await fs.copyFile('worker/model-glb.js','dist/server/model-glb.js');
+// Identify the complete built runtime without including secrets or business data.
+const runtimeFiles=(await fs.readdir('dist/server')).sort();
+const runtimeHash=createHash('sha256');
+for(const name of runtimeFiles){runtimeHash.update(name+'\n');runtimeHash.update(await fs.readFile('dist/server/'+name));}
+await fs.writeFile('dist/build-info.json',JSON.stringify({version:runtimeHash.digest('hex'),builtAt:new Date().toISOString()},null,2)+'\n');

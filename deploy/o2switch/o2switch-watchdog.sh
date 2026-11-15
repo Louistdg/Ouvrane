@@ -1,7 +1,7 @@
 #!/bin/bash
 # OUVRANE — watchdog : relance l'application si elle ne repond plus.
 APP=/home/qita8376/ouvrane.be/app
-if curl -s -o /dev/null --max-time 8 "http://127.0.0.1:3100/health"; then
+if /opt/alt/alt-nodejs22/root/usr/bin/node "$APP/scripts/health-probe.mjs" "http://127.0.0.1:3100/health"; then
   exit 0
 fi
 cd "$APP" || exit 1

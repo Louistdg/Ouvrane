@@ -9,27 +9,36 @@ function clockTime(){return new Date().toLocaleTimeString('fr-BE',{hour:'2-digit
 function clockActor(){return sessionPerson()?.name||company.manager||'Patron'}
 function clockId(){return Math.max(Date.now(),...jobs.flatMap(j=>(j.timeEntries||[]).map(e=>Number(e.id)||0)))+1}
 function clockError(message,id='fieldClockError'){const node=document.getElementById(id);if(node)node.textContent=message;else toast(message);return false}
-function clockPeople(teamId,jobId,date=clockDate()){const quick=jobs.find(job=>job.quickIntervention&&String(job.id)===String(jobId));if(quick&&String(quick.teamId)===String(teamId))return (quick.people||[]).map(Number).filter(id=>getPerson(id)&&!getPerson(id).inactiveAt);const plan=assignments.find(a=>String(a.team)===String(teamId)&&String(a.job)===String(jobId)&&a.date===date);return (plan?.people||teams.find(t=>String(t.id)===String(teamId))?.members||[]).filter(id=>getPerson(id)&&!getPerson(id).inactiveAt)}
+// Time roster is a scoped read model; never copy it into the legacy workspace.
+let serverClockRoster=null;
+function clockRosterScope(){return [globalThis.socleCurrentOrganizationId||localStorage.getItem('socle.activeOrganizationId')||'',currentTimeAccess()?.userId||'',currentTimeAccess()?.roleCode||'',clockDate()].join(':')}
+function currentClockRoster(){return serverClockRoster?.scope===clockRosterScope()?serverClockRoster.data:null}
+async function loadClockRoster(){const scope=clockRosterScope(),date=clockDate(),data=await serverJson('/api/planning?'+new URLSearchParams({from:date,to:date}));if(clockRosterScope()!==scope)throw Error('L’entreprise ou le compte a changé. Rouvrez le pointage.');serverClockRoster={scope,data};return data}
+function clockRosterTeams(){const roster=currentClockRoster();return roster?(roster.teams||[]).map(team=>({...team,members:[...new Set((roster.assignments||[]).filter(a=>String(a.team)===String(team.id)&&a.status!=='cancelled').flatMap(a=>a.people||[]).map(String))]})):teams}
+function clockPerson(id){return (currentClockRoster()?.people||[]).find(p=>String(p.id)===String(id))||(people||[]).find(p=>String(p.id)===String(id))}
+function clockPeople(teamId,jobId,date=clockDate()){const roster=currentClockRoster();if(roster)return [...new Set((roster.assignments||[]).filter(a=>String(a.team)===String(teamId)&&String(a.job)===String(jobId)&&a.date===date&&a.status!=='cancelled').flatMap(a=>a.people||[]).map(String))];const quick=jobs.find(job=>job.quickIntervention&&String(job.id)===String(jobId));if(quick&&String(quick.teamId)===String(teamId))return (quick.people||[]).map(String).filter(id=>clockPerson(id)&&!clockPerson(id).inactiveAt);const plan=assignments.filter(a=>String(a.team)===String(teamId)&&String(a.job)===String(jobId)&&a.date===date&&a.status!=='cancelled');return [...new Set((plan.length?plan.flatMap(a=>a.people||[]):clockRosterTeams().find(t=>String(t.id)===String(teamId))?.members||[]).map(String))].filter(id=>clockPerson(id)&&!clockPerson(id).inactiveAt)}
 function legacyClockScope(teamId,jobId,date=clockDate()){
   const person=sessionPerson();return !person||canFieldAction('scheduleTeams')||(clockPeople(teamId,jobId,date).includes(person.id)&&personJobIds(person.id).has(jobId));
 }
 function legacyVisibleClockEntry(job,entry){return clockScope(entry.team,job.id,entry.date)}
 openTodayEntries=function(){return jobs.flatMap(job=>(job.timeEntries||[]).filter(entry=>entry.date<=clockDate()&&!entry.departure&&visibleClockEntry(job,entry)).map(entry=>({job,entry,team:teams.find(t=>t.id===entry.team)})))};
-fieldArrivalForm=function(){
+fieldArrivalForm=async function(){
   if(!requireField('logHours'))return;
-  const active=activeJobsForPlanning().filter(job=>teams.some(team=>clockScope(team.id,job.id)));
-  const allowedTeams=teams.filter(team=>active.some(job=>clockScope(team.id,job.id)));
+  try{await loadClockRoster()}catch(error){toast(error.message||'Équipes et planning indisponibles.');return}
+  const scopedTeams=clockRosterTeams();
+  const active=activeJobsForPlanning().filter(job=>scopedTeams.some(team=>clockScope(team.id,job.id)&&clockPeople(team.id,job.id).length));
+  const allowedTeams=scopedTeams.filter(team=>active.some(job=>clockScope(team.id,job.id)));
   modal('Pointer l’arrivée',`<form onsubmit="saveFieldArrival(event)"><p class="notice">Choisissez l’équipe et le chantier. Les personnes prévues au planning seront reprises automatiquement.</p><div class="form-two"><label>Équipe<select name="team" required onchange="refreshArrivalPeople()"><option value="">Choisir mon équipe…</option>${allowedTeams.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')}</select></label><label>Chantier<select name="job" required onchange="refreshArrivalPeople()"><option value="">Choisir le chantier…</option>${active.map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('')}</select></label><label>Heure d’arrivée<input name="arrival" type="time" required value="${clockTime()}" onchange="refreshArrivalPeople()"></label></div><div id="arrivalPeople"></div><label>Remarque<input name="note" maxlength="250" placeholder="Retard, météo, matériel…"></label><p id="fieldClockError" class="form-error" role="alert"></p><p class="help-line">Pas de chantier enregistré ou intervention imprévue ?</p><div class="modal-actions"><button class="btn" type="button" onclick="quickInterventionForm()">Décrire une intervention</button><button class="btn primary">Confirmer l’arrivée</button></div></form>`);
 };
 function refreshArrivalPeople(){
   const form=document.querySelector('#modal form'),team=+form.elements.team.value,job=+form.elements.job.value;
-  const ids=clockPeople(team,job);document.querySelector('#arrivalPeople').innerHTML=!team||!job?'':`<p class="form-section-title">Personnes présentes</p><p class="help-line">Décochez les absents. Une arrivée différente permet de noter un retard individuel.</p><div class="arrival-people">${ids.map(id=>`<div><label><input type="checkbox" name="present" value="${id}" checked>${esc(getPerson(id).name)}</label><label>Arrivée de ${esc(getPerson(id).name)}<input type="time" name="arrival-${id}" value="${form.elements.arrival.value}" required></label></div>`).join('')}</div>`;
+  const ids=clockPeople(team,job);document.querySelector('#arrivalPeople').innerHTML=!team||!job?'':`<p class="form-section-title">Personnes présentes</p><p class="help-line">Décochez les absents. Une arrivée différente permet de noter un retard individuel.</p><div class="arrival-people">${ids.map(id=>`<div><label><input type="checkbox" name="present" value="${id}" checked>${esc(clockPerson(id)?.name||String(id))}</label><label>Arrivée de ${esc(clockPerson(id)?.name||String(id))}<input type="time" name="arrival-${id}" value="${form.elements.arrival.value}" required></label></div>`).join('')}</div>`;
 }
 saveFieldArrival=function(event){
   event.preventDefault();if(!requireField('logHours'))return;
   const f=new FormData(event.target),team=teams.find(t=>t.id===+f.get('team')),job=activeJobsForPlanning().find(j=>j.id===+f.get('job')),date=clockDate();
   if(!team||!job||!clockScope(team.id,job.id,date))return clockError('Choisissez votre équipe et un chantier autorisé.');
-  const planned=clockPeople(team.id,job.id,date),ids=[...new Set(f.getAll('present').map(Number))];
+  const planned=clockPeople(team.id,job.id,date),ids=[...new Set(f.getAll('present').map(String))];
   if(!ids.length||ids.some(id=>!planned.includes(id)))return clockError('Choisissez au moins une personne prévue.');
   const times=ids.map(id=>String(f.get('arrival-'+id)||f.get('arrival')||''));
   if(times.some(time=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(time)))return clockError('Renseignez une heure d’arrivée valide.');
@@ -61,7 +70,7 @@ const netMinutesBeforeField=netMinutes;
 netMinutes=function(entry){if(entry.breakMinutes===undefined)return netMinutesBeforeField(entry);if(!entry.departure)return 0;const minute=t=>Number(t.split(':')[0])*60+Number(t.split(':')[1]);return Math.max(0,minute(entry.departure)-minute(entry.arrival)-entry.breakMinutes)};
 allRecentTimeEntries=function(){return jobs.flatMap(job=>(job.timeEntries||[]).filter(e=>e.date<=clockDate()&&visibleClockEntry(job,e)).map(entry=>({job,entry,team:teams.find(t=>t.id===entry.team)}))).sort((a,b)=>b.entry.date.localeCompare(a.entry.date)||b.entry.id-a.entry.id)};
 const timeRowsBeforeField=timeRows;
-timeRows=function(job){return timeRowsBeforeField(job)+`<div class="clock-history">${(job.timeEntries||[]).filter(e=>visibleClockEntry(job,e)).slice().reverse().map(e=>`<article><strong>${fullDate(e.date)} · ${esc(e.people.map(id=>getPerson(id)?.name||'Ancien membre').join(', '))}</strong><p>${esc(e.arrival)} → ${esc(e.departure||'En cours')} · ${(netMinutes(e)/60).toFixed(2)} h par personne</p>${e.note?`<p>${esc(e.note)}</p>`:''}<small>${(e.history||[]).map(h=>`${esc(h.action)} · ${esc(h.by)} · ${esc(new Date(h.at).toLocaleString('fr-BE'))}`).join('<br>')}</small></article>`).join('')}</div>`};
+timeRows=function(job){return renderServerJobTimeRows(job)};
 
 // Planning must preserve historical participants, reject collisions and obey permissions.
 const assignFormBeforeField=assignForm;
@@ -146,18 +155,18 @@ render=function(){if(view!=='personal-time-history')return renderBeforePersonalC
 // Point 5 — the server is now the source of truth for time entries.
 function currentTimeAccess(){return globalThis.socleCurrentAccess||null}
 function hasServerTimePermission(code){const access=currentTimeAccess();return Boolean(access?.owner||(access?.permissions||[]).includes(code))}
-function currentTimePersonId(){const access=currentTimeAccess();return access?.personId!==undefined&&access?.personId!==null?Number(access.personId):sessionPerson()?.id||null}
+function currentTimePersonId(){const access=currentTimeAccess(),value=access?.personId??sessionPerson()?.id;return value===undefined||value===null?null:String(value)}
 function projectAllowedByServer(jobId){const access=currentTimeAccess();if(!access||access.owner||(access.permissions||[]).includes('projects.view.all'))return true;if(jobs.some(job=>job.quickIntervention&&String(job.id)===String(jobId)))return true;return (access.projectIds||[]).map(String).includes(String(jobId))}
 function clockScope(teamId,jobId,date=clockDate()){
   if(!projectAllowedByServer(jobId))return false;
   const access=currentTimeAccess(),personId=currentTimePersonId();
   if(access?.owner||hasServerTimePermission('time_entries.view.all'))return true;
-  const planned=clockPeople(teamId,jobId,date).map(Number);
-  if(hasServerTimePermission('time_entries.view.team')||hasServerTimePermission('time_entries.create.team'))return Boolean(personId&&teams.find(team=>team.id===Number(teamId))?.members?.map(Number).includes(personId));
+  const planned=clockPeople(teamId,jobId,date).map(String);
+  if(hasServerTimePermission('time_entries.view.team')||hasServerTimePermission('time_entries.create.team'))return Boolean(personId&&clockRosterTeams().find(team=>String(team.id)===String(teamId))?.members?.map(String).includes(personId));
   return Boolean(personId&&planned.includes(personId));
 }
 function clockSelectablePeople(teamId,jobId,date=clockDate()){
-  const planned=clockPeople(Number(teamId),Number(jobId),date).map(Number),personId=currentTimePersonId();
+  const planned=clockPeople(String(teamId),String(jobId),date).map(String),personId=currentTimePersonId();
   if(currentTimeAccess()?.owner||hasServerTimePermission('time_entries.view.all')||hasServerTimePermission('time_entries.create.team'))return planned;
   return personId&&planned.includes(personId)?[personId]:[];
 }
@@ -166,20 +175,73 @@ function visibleClockEntry(job,entry){
   if(currentTimeAccess()?.owner||hasServerTimePermission('time_entries.view.all'))return true;
   const personId=currentTimePersonId();
   if(hasServerTimePermission('time_entries.view.team'))return clockScope(entry.team,job.id,entry.date);
-  return Boolean(personId&&(entry.people||[]).map(Number).includes(personId));
+  return Boolean(personId&&(entry.people||[]).map(String).includes(personId));
+}
+let serverTimeLoadSequence=0,serverTimeSummaryState={status:'idle',scope:'',projects:new Map()},serverTimeHistoryPages=new Map();
+function serverTimeScopeKey(){
+  const access=globalThis.socleCurrentAccess||{};
+  return JSON.stringify([typeof activeSocleOrganizationId==='undefined'?'':activeSocleOrganizationId,access.userId||'',access.personId||'',Boolean(access.owner),access.permissions||[],access.projectIds||[],globalThis.socleAccessPreview?.userId||'']);
+}
+function serverJobTimeSummary(job){
+  if(!job||serverTimeSummaryState.status!=='ready'||serverTimeSummaryState.scope!==serverTimeScopeKey())return null;
+  return serverTimeSummaryState.projects.get(String(job.id))||{projectId:String(job.id),minutes:0,entries:0,openEntries:0};
 }
 async function loadServerTimeEntries({renderAfter=true}={}){
+  const scope=serverTimeScopeKey(),sequence=++serverTimeLoadSequence;
+  serverTimeSummaryState={status:'loading',scope,projects:new Map()};
+  serverTimeHistoryPages=new Map();
+  const results=await Promise.allSettled([serverJson('/api/time-entries?include_archived=1'),serverJson('/api/time-entries/summary?include_archived=1')]);
+  if(sequence!==serverTimeLoadSequence||scope!==serverTimeScopeKey())return;
   jobs.filter(job=>job.quickIntervention).forEach(job=>jobs.splice(jobs.indexOf(job),1));
-  try{
-    const data=await serverJson('/api/time-entries');
-    jobs.forEach(job=>job.timeEntries=[]);
-    for(const entry of data.entries||[]){const job=entry.intervention?ensureInterventionJob(entry.intervention):jobs.find(item=>String(item.id)===String(entry.projectId));if(job){job.timeEntries??=[];if(!job.timeEntries.some(item=>String(item.id)===String(entry.id)))job.timeEntries.push(entry)}}
-  }catch(error){
-    // A role without time-entry visibility must not receive legacy pointages from /api/state.
-    jobs.forEach(job=>job.timeEntries=[]);
-    if(!/autorisation|consulter les pointages/i.test(error.message||''))console.warn('OUVRANE time entries',error);
+  jobs.forEach(job=>job.timeEntries=[]);
+  if(results[0].status==='fulfilled'){
+    for(const entry of results[0].value.entries||[]){
+      const job=entry.intervention?ensureInterventionJob(entry.intervention):jobs.find(item=>String(item.id)===String(entry.projectId));
+      if(job){job.timeEntries??=[];if(!job.timeEntries.some(item=>String(item.id)===String(entry.id)))job.timeEntries.push(entry)}
+    }
   }
+  if(results[1].status==='fulfilled'&&Array.isArray(results[1].value.projects)){
+    serverTimeSummaryState={status:'ready',scope,projects:new Map(results[1].value.projects.map(item=>[String(item.projectId),item]))};
+  }else serverTimeSummaryState={status:'error',scope,projects:new Map()};
+  for(const result of results)if(result.status==='rejected'&&!/autorisation|consulter les pointages/i.test(result.reason?.message||''))console.warn('OUVRANE time entries',result.reason);
   if(renderAfter&&storageReady)render();
+}
+function serverJobTimeHistoryControl(job,showSummary=true){
+  if(!globalThis.SOCLE_PRODUCTION&&!currentTimeAccess())return '';
+  const page=serverTimeHistoryPages.get(String(job.id)),summary=serverJobTimeSummary(job),loaded=(job.timeEntries||[]).length;
+  const message=summary?loaded+' pointage(s) affiché(s) sur '+summary.entries+' autorisé(s). Total : '+jobHoursLabel(job)+'.':'Le total des heures est indisponible. Les lignes affichées ne constituent pas un total.';
+  const hasMore=page?.loaded?Boolean(page.nextCursor):!summary||loaded<summary.entries;
+  return `${showSummary?`<p class="help-line">${esc(message)}</p>`:''}${page?.error?`<p class="form-error" role="alert">${esc(page.error)}</p>`:''}${hasMore||page?.loading||page?.error?`<button class="btn" type="button" ${page?.loading?'disabled':''} onclick="loadProjectTimeHistory('${jsString(job.id)}',this)">${page?.loading?'Chargement…':page?.error?'Réessayer':page?.loaded?'Afficher des pointages plus anciens':'Charger l’historique du chantier'}</button>`:''}`;
+}
+async function loadProjectTimeHistory(jobId,button){
+  const key=String(jobId),scope=serverTimeScopeKey(),job=jobs.find(item=>String(item.id)===key);
+  if(!job)return;
+  let page=serverTimeHistoryPages.get(key);
+  if(page?.loading||page?.loaded&&!page.nextCursor)return;
+  if(!page){page={loaded:false,nextCursor:null,loading:false,error:''};serverTimeHistoryPages.set(key,page)}
+  const host=button?.closest?.('.server-job-time-history');
+  page.loading=true;page.error='';if(button)button.disabled=true;
+  try{
+    const query=new URLSearchParams({project_id:key,limit:'100',include_archived:'1'});
+    if(page.nextCursor)query.set('cursor',page.nextCursor);
+    const data=await serverJson('/api/time-entries?'+query);
+    if(scope!==serverTimeScopeKey()||serverTimeHistoryPages.get(key)!==page||!jobs.includes(job))return;
+    if(!page.loaded)job.timeEntries=[];
+    for(const entry of data.entries||[])if(String(entry.projectId)===key&&!job.timeEntries.some(item=>String(item.id)===String(entry.id)))job.timeEntries.push(entry);
+    page.loaded=true;page.nextCursor=data.nextCursor||null;
+  }catch(error){
+    if(scope!==serverTimeScopeKey()||serverTimeHistoryPages.get(key)!==page)return;
+    page.error=error.message||'Historique indisponible. Réessayez.';
+  }finally{
+    if(scope===serverTimeScopeKey()&&serverTimeHistoryPages.get(key)===page){
+      page.loading=false;
+      if(host?.isConnected){page.expanded=Boolean(host.open);host.outerHTML=timeRows(job)}
+    }
+  }
+}
+function renderServerJobTimeRows(job){
+  const page=serverTimeHistoryPages.get(String(job.id)),expanded=Boolean(page?.expanded??page?.loaded);
+  return `<details class="server-job-time-history"${expanded?' open':''}><summary><strong>Historique des pointages</strong> · ${esc(jobTimeHistoryLabel(job))}</summary><div class="job-time-history-body"><div class="clock-history">${(job.timeEntries||[]).filter(e=>visibleClockEntry(job,e)).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))||String(b.arrival).localeCompare(String(a.arrival))).map(e=>`<article><strong>${fullDate(e.date)} · ${esc(e.people.map(id=>getPerson(id)?.name||'Ancien membre').join(', '))}</strong><p>${esc(e.arrival)} → ${esc(e.departure||'En cours')} · ${(netMinutes(e)/60).toLocaleString('fr-BE',{minimumFractionDigits:2,maximumFractionDigits:2})} h par personne</p>${e.note?`<p>${esc(e.note)}</p>`:''}<small>${(e.history||[]).map(h=>`${esc(h.action)} · ${esc(h.by)} · ${esc(new Date(h.at).toLocaleString('fr-BE'))}`).join('<br>')}</small></article>`).join('')||'<p class="person-empty">Aucun pointage affiché.</p>'}</div>${serverJobTimeHistoryControl(job,false)}</div></details>`;
 }
 globalThis.loadServerTimeEntries=loadServerTimeEntries;
 
@@ -188,16 +250,16 @@ const workspaceSnapshotBeforeServerTime=workspaceSnapshot;
 workspaceSnapshot=function(){const state=JSON.parse(workspaceSnapshotBeforeServerTime());state.jobs=(state.jobs||[]).filter(job=>!job.quickIntervention);for(const job of state.jobs)job.timeEntries=[];return JSON.stringify(state)};
 
 refreshArrivalPeople=function(){
-  const form=document.querySelector('#modal form'),team=Number(form?.elements.team?.value||0),job=Number(form?.elements.job?.value||0),ids=clockSelectablePeople(team,job);
+  const form=document.querySelector('#modal form'),team=String(form?.elements.team?.value||''),job=String(form?.elements.job?.value||''),ids=clockSelectablePeople(team,job);
   const target=document.querySelector('#arrivalPeople');if(!target)return;
-  target.innerHTML=!team||!job?'':`<p class="form-section-title">Personnes présentes</p><p class="help-line">Décochez les absents. Une arrivée différente permet de noter un retard individuel.</p><div class="arrival-people">${ids.map(id=>`<div><label><input type="checkbox" name="present" value="${id}" checked>${esc(getPerson(id)?.name||'Membre')}</label><label>Arrivée de ${esc(getPerson(id)?.name||'Membre')}<input type="time" name="arrival-${id}" value="${form.elements.arrival.value}" required></label></div>`).join('')}</div>`;
+  target.innerHTML=!team||!job?'':`<p class="form-section-title">Personnes présentes</p><p class="help-line">Décochez les absents. Une arrivée différente permet de noter un retard individuel.</p><div class="arrival-people">${ids.map(id=>`<div><label><input type="checkbox" name="present" value="${id}" checked>${esc(clockPerson(id)?.name||'Membre')}</label><label>Arrivée de ${esc(clockPerson(id)?.name||'Membre')}<input type="time" name="arrival-${id}" value="${form.elements.arrival.value}" required></label></div>`).join('')}</div>`;
 };
 
 saveFieldArrival=async function(event){
   event.preventDefault();if(!requireField('logHours'))return;
-  const f=new FormData(event.target),team=teams.find(t=>t.id===Number(f.get('team'))),job=activeJobsForPlanning().find(j=>j.id===Number(f.get('job'))),date=clockDate();
+  const f=new FormData(event.target),team=clockRosterTeams().find(t=>String(t.id)===String(f.get('team'))),job=activeJobsForPlanning().find(j=>String(j.id)===String(f.get('job'))),date=clockDate();
   if(!team||!job||!clockScope(team.id,job.id,date))return clockError('Choisissez votre équipe et un chantier autorisé.');
-  const planned=clockSelectablePeople(team.id,job.id,date),ids=[...new Set(f.getAll('present').map(Number))];
+  const planned=clockSelectablePeople(team.id,job.id,date),ids=[...new Set(f.getAll('present').map(String))];
   if(!ids.length||ids.some(id=>!planned.includes(id)))return clockError('Choisissez au moins une personne autorisée et prévue.');
   const peoplePayload=ids.map(id=>({personId:String(id),arrival:String(f.get('arrival-'+id)||f.get('arrival')||'')}));
   if(peoplePayload.some(item=>!/^([01]\d|2[0-3]):[0-5]\d$/.test(item.arrival)))return clockError('Renseignez une heure d’arrivée valide.');
@@ -212,8 +274,8 @@ fieldTimeForm=function(){
 teamClockOutForm=function(jobId,entryId){
   if(!requireField('logHours'))return;const job=jobs.find(j=>String(j.id)===String(jobId)),entry=job?.timeEntries.find(e=>String(e.id)===String(entryId));
   if(!entry||entry.departure||!visibleClockEntry(job,entry))return denyAccess();
-  const selectable=(entry.people||[]).map(Number).filter(id=>currentTimeAccess()?.owner||hasServerTimePermission('time_entries.create.team')||id===currentTimePersonId());
-  modal('Pointer le départ',`<form onsubmit="saveTeamClockOut(event,'${jsString(job.id)}','${jsString(entry.id)}')"><p><strong>${esc(job.name)}</strong> · ${fullDate(entry.date)}</p><p>Arrivée : ${esc(entry.arrival)}</p>${entry.date!==clockDate()?'<p class="notice">Départ oublié : indiquez l’heure de départ de cette journée.</p>':''}<p class="form-section-title">Personnes qui terminent</p><div class="check-people compact-recipients">${selectable.map(id=>`<label><input type="checkbox" name="person" value="${id}" checked>${esc(getPerson(id)?.name||'Membre')}</label>`).join('')}</div><label>Heure de départ<input name="departure" type="time" required value="${entry.date===clockDate()?clockTime():'16:15'}"></label><label>Remarque<input name="note" maxlength="250"></label><p id="clockOutError" class="form-error" role="alert"></p><div class="modal-actions"><button class="btn primary">Confirmer le départ</button></div></form>`);
+  const selectable=(entry.people||[]).map(String).filter(id=>currentTimeAccess()?.owner||hasServerTimePermission('time_entries.create.team')||id===currentTimePersonId());
+  modal('Pointer le départ',`<form onsubmit="saveTeamClockOut(event,'${jsString(job.id)}','${jsString(entry.id)}')"><p><strong>${esc(job.name)}</strong> · ${fullDate(entry.date)}</p><p>Arrivée : ${esc(entry.arrival)}</p>${entry.date!==clockDate()?'<p class="notice">Départ oublié : indiquez l’heure de départ de cette journée.</p>':''}<p class="form-section-title">Personnes qui terminent</p><div class="check-people compact-recipients">${selectable.map(id=>`<label><input type="checkbox" name="person" value="${id}" checked>${esc(clockPerson(id)?.name||'Membre')}</label>`).join('')}</div><label>Heure de départ<input name="departure" type="time" required value="${entry.date===clockDate()?clockTime():'16:15'}"></label><label>Remarque<input name="note" maxlength="250"></label><p id="clockOutError" class="form-error" role="alert"></p><div class="modal-actions"><button class="btn primary">Confirmer le départ</button></div></form>`);
 };
 saveTeamClockOut=async function(event,jobId,entryId){
   event.preventDefault();if(!requireField('logHours'))return;const f=new FormData(event.target),job=jobs.find(j=>String(j.id)===String(jobId)),entry=job?.timeEntries.find(e=>String(e.id)===String(entryId)),departure=String(f.get('departure')||''),personIds=[...new Set(f.getAll('person').map(String))];
@@ -262,7 +324,7 @@ saveArrival=async function(event,jobId){
 };
 saveDeparture=async function(event,jobId,entryId){
   event.preventDefault();if(!requireField('logHours'))return;const f=new FormData(event.target),job=jobs.find(item=>String(item.id)===String(jobId)),entry=job?.timeEntries.find(item=>String(item.id)===String(entryId));if(!entry||!visibleClockEntry(job,entry))return denyAccess();
-  const personId=currentTimePersonId(),personIds=(entry.people||[]).map(Number).filter(id=>currentTimeAccess()?.owner||hasServerTimePermission('time_entries.create.team')||id===personId).map(String);if(!personIds.length)return toast('Aucune personne autorisée à clôturer.');
+  const personId=currentTimePersonId(),personIds=(entry.people||[]).map(String).filter(id=>currentTimeAccess()?.owner||hasServerTimePermission('time_entries.create.team')||id===personId).map(String);if(!personIds.length)return toast('Aucune personne autorisée à clôturer.');
   try{await serverJson('/api/time-entries/'+encodeURIComponent(entry.id)+'/departure',{method:'POST',body:JSON.stringify({departure:String(f.get('departure')||''),note:String(f.get('note')||'').trim(),personIds})});closeModal();await loadServerTimeEntries();showJob(job.id);toast('Départ enregistré côté serveur.')}catch(error){toast(error.message)}
 };
 saveCompactArrival=async function(event){

@@ -10,10 +10,10 @@ const workerEmail = 'anthony.simon@batinova.example';
 const token = Date.now().toString();
 const operationKey = name => `means-${name}-${token}-${crypto.randomUUID()}`;
 const dateAt = days => {
-  const date = new Date(Date.now() + days * 86400000);
-  const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(date);
-  const part = type => parts.find(value => value.type === type).value;
-  return `${part('year')}-${part('month')}-${part('day')}`;
+  const parts = new Intl.DateTimeFormat('en-CA', {timeZone: 'Europe/Brussels', year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(new Date());
+  const part = type => Number(parts.find(value => value.type === type).value);
+  const date = new Date(Date.UTC(part('year'), part('month') - 1, part('day') + days, 12));
+  return date.toISOString().slice(0,10);
 };
 
 try {

@@ -1,0 +1,41 @@
+{
+  "synthetic": true,
+  "createdBy": "Mission 03 - original fixtures",
+  "files": [
+    {
+      "file": "colonnes-a-associer.csv",
+      "bytes": 120,
+      "sha256": "019ce14c52e592801363a58d8d132161ec53f902f6a7ebf46f490e380ff17d08"
+    },
+    {
+      "file": "date-a-confirmer.csv",
+      "bytes": 114,
+      "sha256": "feb76644eca2379661f78375c42644421aa9dcdb6c1287b5d731f1fc47c5bc1b"
+    },
+    {
+      "file": "fournisseur-10000.csv",
+      "bytes": 638960,
+      "sha256": "55f50b7a027426d7d1bfd16321094572ebb4f9e23e5c591f9810a2eeae05fab7"
+    },
+    {
+      "file": "fournisseur-erreurs.csv",
+      "bytes": 362,
+      "sha256": "eaa4c7fb58dc00619b6d3e782e5c54d143b568fe5112286e6615ab22390712c2"
+    },
+    {
+      "file": "fournisseur-erreurs.xlsx",
+      "bytes": 6742,
+      "sha256": "cc45d5d715019a2599b87f147bb7ab9c756279b768258c0653eb60903647f98e"
+    },
+    {
+      "file": "fournisseur-valide.csv",
+      "bytes": 309,
+      "sha256": "0e8c9085202deb551dd8f1907d6318705a24cb95eaf878871350e143e45938a0"
+    },
+    {
+      "file": "fournisseur-valide.xlsx",
+      "bytes": 6891,
+      "sha256": "0b8bb20b2407098cddfe50bf59a89931e151c7c15e74c1394d725602fcd958d9"
+    }
+  ]
+}

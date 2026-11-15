@@ -54,8 +54,23 @@ function invitationRosterPerson(database, invitation, roleCode) {
   return batinovaWorkspaceRosterPerson(state, personId);
 }
 
+// Sliding-window limiter keyed by client address, used by /auth/login and /auth/activate.
+// The previous limiter was process-global (shared counters for every IP): one address could
+// exhaust the 30 attempts/minute budget and lock the connection of all users at once. The
+// same 30/minute budget now applies per address (office NATs keep their full allowance).
+export function createIpRateLimiter({windowMs = 60_000, maxAttempts = 30, maxAddresses = 10_000} = {}) {
+  const hits = new Map();
+  return function allow(address) {
+    const now = Date.now(), recent = (hits.get(address) || []).filter(at => at > now - windowMs);
+    if (recent.length >= maxAttempts) { hits.set(address, recent); return false; }
+    recent.push(now); hits.set(address, recent);
+    if (hits.size > maxAddresses) for (const [key, values] of hits) { if (!values.some(at => at > now - windowMs)) hits.delete(key); if (hits.size <= maxAddresses) break; }
+    return true;
+  };
+}
+
 export function productionAuth(database, secret) {
-  let inFlight = 0, windowStart = Date.now(), attempts = 0;
+  let inFlight = 0;
   const eligible = id => !!database.prepare(`SELECT 1 FROM production_credentials c JOIN profiles p ON p.id=c.user_id WHERE c.user_id=? AND c.disabled_at IS NULL AND p.identity_kind='account'
     AND EXISTS(SELECT 1 FROM organization_members m WHERE m.user_id=c.user_id AND m.status='active')
     AND NOT EXISTS(SELECT 1 FROM local_test_identities i WHERE i.profile_id=c.user_id)`).get(id);
@@ -73,10 +88,10 @@ export function productionAuth(database, secret) {
   }
   async function login(email, password) {
     const now = Date.now();
-    if (now - windowStart > 60_000) { windowStart = now; attempts = 0; }
-    if (inFlight >= 2 || attempts >= 30) return {status: 429};
+    // Global brake on concurrent scrypt work only; per-address throttling lives at the HTTP layer.
+    if (inFlight >= 2) return {status: 429};
     if (typeof email !== 'string' || typeof password !== 'string' || email.length > 254 || Buffer.byteLength(password) > 1024) return {status: 401};
-    attempts++; inFlight++;
+    inFlight++;
     try {
       const row = database.prepare('SELECT * FROM production_credentials WHERE email=?').get(email.trim().toLowerCase());
       const allowed = row && eligible(row.user_id) && row.locked_until <= now;

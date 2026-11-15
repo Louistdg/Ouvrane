@@ -2,7 +2,7 @@
  * Commercial quotes can exist with organization + canonical customer only.
  * No project, financial baseline, stock movement or delivery is created here.
  */
-let e2e02CustomerCatalogReady=false;
+let e2e02CustomerCatalogReady=false,e2e02CustomerNextCursor=null;
 let e2e02CustomerCatalogKey='',e2e02CustomerCatalogRequest=null;
 const e2e02QuoteCreatesRunning=new Set();
 function e2e02QuoteCreateStorageKey(){return 'ouvrane:quote-create:'+iaCQuoteScope()}
@@ -35,7 +35,7 @@ function e2e02CustomerContext(){
   return JSON.stringify([typeof iaCQuoteScope==='function'?iaCQuoteScope():'',typeof iaCQuoteWorkspaceGeneration==='number'?iaCQuoteWorkspaceGeneration:0,typeof storageRevision==='number'?storageRevision:0]);
 }
 function e2e02InvalidateCustomers(){
-  e2e02CustomerCatalogReady=false;e2e02CustomerCatalogKey='';e2e02CustomerCatalogRequest=null;iaCCustomers=[];
+  e2e02CustomerCatalogReady=false;e2e02CustomerNextCursor=null;e2e02CustomerCatalogKey='';e2e02CustomerCatalogRequest=null;iaCCustomers=[];
 }
 
 function e2e02CustomerLabel(customer){
@@ -45,9 +45,9 @@ function e2e02CustomerAddress(customer){
   const locality=[customer?.postalCode,customer?.city].filter(Boolean).join(' ').trim();
   return [customer?.street,locality].filter(Boolean).join(', ').trim();
 }
-function e2e02CustomerChoiceLabel(customer){
+function e2e02CustomerChoiceLabel(customer,choices=iaCCustomers){
   const label=e2e02CustomerLabel(customer);
-  if(!iaCCustomers.some(other=>String(other.id)!==String(customer.id)&&e2e02CustomerLabel(other)===label))return label;
+  if(!choices.some(other=>String(other.id)!==String(customer.id)&&e2e02CustomerLabel(other)===label))return label;
   const source=typeof contacts==='undefined'?null:contacts.find(contact=>String(contact.id)===String(customer.sourceContactId||''));
   return label+' · '+(source?.reference||e2e02CustomerAddress(customer)||customer.email||customer.phone||customer.id);
 }
@@ -58,15 +58,62 @@ async function e2e02EnsureCustomers(){
   if(e2e02CustomerCatalogKey!==key)iaCCustomers=[];
   e2e02CustomerCatalogReady=false;
   const request={key,promise:null};e2e02CustomerCatalogRequest=request;
-  request.promise=serverJson('/api/customers?limit=250').then(data=>{
+  request.promise=serverJson('/api/customers?limit=50').then(data=>{
     if(e2e02CustomerContext()!==key||e2e02CustomerCatalogRequest!==request)throw Object.assign(Error('Le contexte de l’annuaire a changé.'),{staleContext:true});
-    iaCCustomers=Array.isArray(data.customers)?data.customers:[];
+    iaCCustomers=Array.isArray(data.customers)?data.customers:[];e2e02CustomerNextCursor=data.nextCursor||null;
     e2e02CustomerCatalogKey=key;e2e02CustomerCatalogReady=true;
   }).finally(()=>{if(e2e02CustomerCatalogRequest===request)e2e02CustomerCatalogRequest=null});
   return request.promise;
 }
+// A form owns one page plus its selected identity, never the whole catalog.
+function e2e02PickerCustomer(form,id){
+ const s=form?._customerPicker;
+ return s?(s.rows.find(c=>String(c.id)===String(id))||(String(s.selected?.id)===String(id)?s.selected:null)):iaCCustomers.find(c=>String(c.id)===String(id));
+}
+function e2e02MountCustomerPicker(form){
+ const select=form?.querySelector('select[name=customerId]');if(!select||form._customerPicker)return;
+ const state={key:e2e02CustomerContext(),rows:iaCCustomers.slice(0,50),selected:iaCCustomers.find(c=>String(c.id)===select.value)||null,cursors:[null],index:0,next:e2e02CustomerNextCursor,query:'',sequence:0,busy:false,error:'',timer:0};
+ form._customerPicker=state;
+ const host=document.createElement('div');host.dataset.customerPager='';host.innerHTML='<input type="search" aria-label="Rechercher un client" placeholder="Nom, adresse, e-mail ou TVA…" maxlength="120"><div class="toolbar"><button type="button" class="btn" data-customer-prev>Précédents</button><span data-customer-page role="status"></span><button type="button" class="btn" data-customer-next>Suivants</button><button type="button" class="btn" data-customer-retry hidden>Réessayer</button></div>';
+ const label=select.closest('label'),group=label.parentElement.classList.contains('form-two')?label.parentElement:label;group.after(host);
+ const search=host.querySelector('input'),previous=host.querySelector('[data-customer-prev]'),next=host.querySelector('[data-customer-next]'),retry=host.querySelector('[data-customer-retry]'),status=host.querySelector('[data-customer-page]');
+ const current=sequence=>form.isConnected&&form._customerPicker===state&&state.key===e2e02CustomerContext()&&sequence===state.sequence;
+ const locked=()=>form.dataset.sxServerPending==='true'||Boolean(form._quoteCreateDisabled)||form._jobPending||form._jobBusy;
+ function paint(){
+  const selected=select.value||String(state.selected?.id||''),blank=select.options[0]?.textContent||'Choisir le client…';
+  const rows=[...state.rows];if(state.selected&&!rows.some(c=>String(c.id)===String(state.selected.id)))rows.unshift(state.selected);
+  select.innerHTML='<option value="">'+esc(blank)+'</option>'+rows.filter(c=>!c.archivedAt||String(c.id)===selected).map(c=>'<option value="'+esc(c.id)+'">'+esc(e2e02CustomerChoiceLabel(c,rows)+(c.archivedAt?' · fiche inactive':''))+'</option>').join('');
+  select.value=selected;
+  previous.disabled=Boolean(locked()||state.busy||state.index===0);next.disabled=Boolean(locked()||state.busy||!state.next);search.disabled=Boolean(locked());retry.disabled=Boolean(locked());retry.hidden=!state.error;
+  status.textContent=state.error|| (state.busy?'Recherche…':'Page '+(state.index+1)+' · '+state.rows.length+' résultat(s)');
+ }
+ async function load(){
+  if(locked()||state.key!==e2e02CustomerContext()||!form.isConnected)return;
+  const sequence=++state.sequence;state.busy=true;state.error='';paint();
+  const params=new URLSearchParams({limit:'50',q:state.query});if(state.cursors[state.index])params.set('cursor',state.cursors[state.index]);
+  try{const data=await serverJson('/api/customers?'+params);if(!current(sequence))return;state.rows=data.customers||[];state.next=data.nextCursor||null;}
+  catch(error){if(current(sequence))state.error=error.message||'Clients indisponibles.';}
+  finally{if(current(sequence)){state.busy=false;paint();}}
+ }
+ select.addEventListener('change',()=>{state.selected=state.rows.find(c=>String(c.id)===select.value)||(String(state.selected?.id)===select.value?state.selected:null);},true);
+ search.addEventListener('input',()=>{state.sequence++;state.query=search.value.trim().slice(0,120);state.cursors=[null];state.index=0;state.next=null;state.busy=true;paint();clearTimeout(state.timer);state.timer=setTimeout(load,200);});
+ previous.onclick=()=>{if(state.index>0&&!locked()){state.index--;load();}};
+ next.onclick=()=>{if(state.next&&!locked()){state.cursors.length=state.index+1;state.cursors.push(state.next);state.index++;load();}};
+ form.addEventListener('sx:draft-restore',event=>{
+  const id=String(event.detail?.values?.customerId?.values?.[0]||'');if(!id)return;
+  if(![...select.options].some(option=>option.value===id)){
+   const name=String(event.detail?.values?.client?.values?.[0]||'Client sélectionné');select.add(new Option(name,id));state.selected={id,companyName:name};
+  }
+  const key=state.key;
+  serverJson('/api/customers/'+encodeURIComponent(id)+'?includeArchived=1').then(data=>{
+   if(form.isConnected&&key===e2e02CustomerContext()&&select.value===id){state.selected=data.customer;paint();}
+  }).catch(error=>{if(form.isConnected&&key===e2e02CustomerContext())status.textContent=error.message||'Client à vérifier.';});
+ });
+ retry.onclick=load;paint();
+}
+
 function e2e02ApplyCustomer(select){
-  const customer=iaCCustomers.find(item=>String(item.id)===String(select.value||'')),form=select.form;
+  const form=select.form,customer=e2e02PickerCustomer(form,select.value);
   if(!form)return;
   const client=form.querySelector('[name="client"]'),address=form.querySelector('[name="clientAddress"]');
   if(customer){
@@ -131,12 +178,13 @@ function e2e02QuoteFormMarkup(id='',draftId='',preferredCustomerId=''){
       '<label>Conditions de paiement<input name="paymentTerms" maxlength="300" value="'+esc(quote.paymentTerms||'')+'"></label>'+
     '</div><label>Remarques<textarea name="notes" rows="3">'+esc(notesValue)+'</textarea></label><label>Exclusions / réserves<textarea name="exclusions" rows="3">'+esc(quote.exclusions||'')+'</textarea></label></section>'+
     '<p id="quoteError" class="form-error" role="alert"></p>'+
-    (iaCCustomers.length||pending?'<div class="modal-actions"><button class="btn primary">Enregistrer le devis</button></div>':'<p class="notice"><strong>Aucun client canonique disponible.</strong> Créez d’abord le client dans l’annuaire commercial.</p>')+
+    '<div class="modal-actions"><button class="btn primary">Enregistrer le devis</button></div>'+
     '</form>';
 }
 function e2e02OpenQuoteForm(id='',draftId='',preferredCustomerId=''){
   if(!canModuleAction('quotes',id?'edit':'add'))return denyAccess('Vous ne pouvez pas créer ou modifier de devis.');
   modal(id?'Modifier le devis':'Créer un devis',e2e02QuoteFormMarkup(id,draftId,preferredCustomerId));
+  e2e02MountCustomerPicker(document.querySelector('#modalbody form.quote-editor'));
   e2e02PrepareQuoteForm(document.querySelector('#modalbody form.quote-editor'));
 }
 quoteForm=function(id='',draftId='',preferredCustomerId=''){

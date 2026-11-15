@@ -8,6 +8,7 @@ function ready(){return !globalThis.socleWorkspaceLoading&&(typeof storageReady!
 function permission(code){var access=globalThis.socleCurrentAccess||{};return Boolean(access.owner||access.roleCode==='OWNER'||(access.permissions||[]).includes(code))}
 function moduleView(name){try{return ready()&&typeof canModuleAction==='function'&&canModuleAction(name,'view')}catch(_){return false}}
 function catalogueAllowed(){return ['jobs','quotes','documents','fleet','accounting','actions'].some(moduleView)}
+globalThis.socleToolsCatalogueAllowed=catalogueAllowed;
 function mayPlans(){return moduleView('documents')&&permission('documents.secure.manage')}
 function mayMeasurements(){return moduleView('quotes')&&permission('quotes.view')&&permission('quotes.prices.view')}
 function mayImports(){return permission('purchase_orders.manage')&&permission('stock.view')&&permission('quotes.prices.view')&&ready()}
@@ -29,6 +30,7 @@ function capability(id,logo,title,detail,allowed,actionName,label,unconfigured){
 }
 function ensureNavButton(){
  var nav=document.querySelector('#nav');if(!nav)return;
+ if(!v4NavButton||!v4NavButton.isConnected)v4NavButton=nav.querySelector('[data-nav-route="connecteurs"]');
  if(!catalogueAllowed()){if(v4NavButton)v4NavButton.remove();return}
  if(!v4NavButton||!v4NavButton.isConnected){
   v4NavButton=document.createElement('button');v4NavButton.type='button';v4NavButton.dataset.navRoute='connecteurs';v4NavButton.dataset.navGroup='settings';
@@ -138,11 +140,10 @@ function homeStrip(main){
 }
 function homeConnectedCard(main){
  if(main.querySelector('[data-v5-home-overview]')||!catalogueAllowed())return;
- var card=document.createElement('section');card.className='panel v4-home-connected';card.dataset.v5HomeOverview='';
- card.innerHTML=head('Vos outils de travail','Plans PDF, métrés, tarifs fournisseurs et documents.')+
- '<div class="v4-grid v4-g2"><div><p>Retrouvez les outils disponibles pour vos dossiers. Les imports et les actions terrain restent soumis à vos droits et à votre confirmation.</p>'+
- '<div class="v5-tools-actions">'+action('tools','Ouvrir les outils & imports',true)+action('measurements','Ouvrir les métrés',mayMeasurements())+action('plans','Ouvrir les plans PDF',mayPlans())+'</div></div>'+
- '<div><h3>Échanges externes</h3><p>Peppol, ONSS et les données des fabricants ne sont pas connectés dans cette version. Les factures, pointages et moyens OUVRANE restent accessibles dans leurs modules.</p>'+badge('Non configurés','neutral')+'</div></div>';main.append(card);
+ var card=document.createElement('details');card.className='panel v4-home-connected';card.dataset.v5HomeOverview='';
+ card.innerHTML='<summary>Outils et configuration</summary><div class="v4-home-connected-body"><p>Plans, métrés, tarifs fournisseurs et préparation des échanges externes.</p>'+
+ '<div class="v5-tools-actions">'+action('tools','Outils & imports',true)+action('measurements','Métrés',mayMeasurements())+action('plans','Plans PDF',mayPlans())+'</div>'+
+ '<p class="subtle">Peppol, ONSS et données fabricants : aucun service externe connecté dans cette version.</p></div>';main.append(card);
 }
 function pendingChoice(){
  return {sequence:++choiceSequence,view:view,scope:accessScope(),origin:document.querySelector('#modalbody')?.firstElementChild,open:Boolean(document.querySelector('#modal')?.open)};

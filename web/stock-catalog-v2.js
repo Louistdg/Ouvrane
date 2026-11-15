@@ -18,6 +18,17 @@ function stockCatalogFormatQuantity(value){
   if(!Number.isFinite(quantity))return'0';
   return new Intl.NumberFormat('fr-BE',{maximumFractionDigits:3}).format(quantity);
 }
+function stockCatalogUnitLabel(value){
+  const unit=String(value||'');
+  const labels={linear_metre:'mètre linéaire',square_metre:'m²',cubic_metre:'m³',piece:'pièce',pieces:'pièces',pc:'pièce',unit:'unité',metre:'m',meter:'m',kg:'kg',litre:'L',liter:'L',roll:'rouleau',pallet:'palette',pair:'paire',hour:'heure'};
+  if(Object.prototype.hasOwnProperty.call(labels,unit))return labels[unit];
+  const pack=/^(bag|box|pack)_(\d+(?:[.,]\d+)?)(kg|g|l|ml)?$/i.exec(unit);
+  if(pack)return ({bag:'sac',box:'boîte',pack:'lot'})[pack[1].toLowerCase()]+' de '+pack[2].replace('.',',')+(pack[3]?' '+pack[3]:'');
+  return unit;
+}
+function stockCatalogLocationLabel(value){
+  return ({depot:'Dépôt',warehouse:'Dépôt',vehicle:'Véhicule',project:'Chantier',job:'Chantier',other:'Autre'})[String(value||'')]||String(value||'');
+}
 function stockCatalogDate(value){
   if(!value)return'—';
   try{return typeof fullDate==='function'?fullDate(value):String(value)}catch{return String(value)}
@@ -114,7 +125,7 @@ function stockCatalogFilteredItems(){
 function stockCatalogBalanceSummary(item,limit){
   const balances=(item.balances||[]).filter(function(balance){return Number(balance.quantity||0)!==0}).slice().sort(function(a,b){return Number(b.quantity||0)-Number(a.quantity||0)});
   if(!balances.length)return '<span class="stock-catalog-muted">Aucun stock localisé</span>';
-  const shown=balances.slice(0,limit||3).map(function(balance){return '<span>'+esc(balance.location||'Emplacement')+' : <strong>'+stockCatalogFormatQuantity(balance.quantity)+' '+esc(item.unit||'')+'</strong></span>'}).join('');
+  const shown=balances.slice(0,limit||3).map(function(balance){return '<span>'+esc(balance.location||'Emplacement')+' : <strong>'+stockCatalogFormatQuantity(balance.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</strong></span>'}).join('');
   const more=balances.length>(limit||3)?'<small>+'+(balances.length-(limit||3))+' emplacement(s)</small>':'';
   return shown+more;
 }
@@ -152,7 +163,7 @@ function stockCatalogUpdateSuggestions(form){
   target.hidden=false;
   target.innerHTML='<strong>Articles ressemblants</strong><p>Vérifiez avant de créer un doublon.</p>'+candidates.map(function(entry){
     const item=entry.item;
-    return '<div class="stock-catalog-suggestion"><span><b>'+esc(item.name)+'</b><small>'+esc(stockCatalogPath(item))+' · '+stockCatalogFormatQuantity(item.quantity)+' '+esc(item.unit||'')+' disponible(s)</small></span><button class="btn" type="button" onclick="stockCatalogUseExisting(\''+jsString(String(item.id))+'\')">Utiliser cet article</button></div>';
+    return '<div class="stock-catalog-suggestion"><span><b>'+esc(item.name)+'</b><small>'+esc(stockCatalogPath(item))+' · '+stockCatalogFormatQuantity(item.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+' disponible(s)</small></span><button class="btn" type="button" onclick="stockCatalogUseExisting(\''+jsString(String(item.id))+'\')">Utiliser cet article</button></div>';
   }).join('');
 }
 function stockCatalogUseExisting(id){
@@ -177,17 +188,17 @@ stockView=function(){
   const desktopRows=items.map(function(item){
     return '<tr><td><strong>'+esc(item.name||'Article')+'</strong><small>'+esc(item.subcategory||item.category||item.supplier||'')+'</small></td>'+
       '<td>'+esc(stockCatalogPath(item))+'</td>'+
-      '<td><strong>'+stockCatalogFormatQuantity(item.quantity)+' '+esc(item.unit||'')+'</strong>'+(stockCatalogIsLow(item)?'<small class="ia-stock-warning">Sous minimum</small>':'')+'</td>'+
+      '<td><strong>'+stockCatalogFormatQuantity(item.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</strong>'+(stockCatalogIsLow(item)?'<small class="ia-stock-warning">Sous minimum</small>':'')+'</td>'+
       '<td><div class="stock-catalog-balances">'+stockCatalogBalanceSummary(item,2)+'</div></td>'+
-      '<td>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(item.unit||'')+'</td>'+
+      '<td>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(stockCatalogUnitLabel(item.unit))+'</td>'+
       '<td>'+esc(item.reference||'—')+'</td>'+
       '<td class="stock-catalog-row-actions"><button class="link" type="button" onclick="stockCatalogShowItem(\''+jsString(String(item.id))+'\')">Détail</button>'+(stockCatalogCapabilities.moveStock?' <button class="link" type="button" onclick="stockMovementForm(\''+jsString(String(item.id))+'\')">Mouvement</button>':'')+'</td></tr>';
   }).join('');
   const mobileCards=items.map(function(item){
     return '<article class="stock-catalog-card"><div class="stock-catalog-card-head"><span><strong>'+esc(item.name||'Article')+'</strong><small>'+esc(stockCatalogPath(item))+'</small></span>'+(stockCatalogIsLow(item)?'<span class="badge warn">Stock bas</span>':'')+'</div>'+
-      '<div class="stock-catalog-card-total">'+stockCatalogFormatQuantity(item.quantity)+' '+esc(item.unit||'')+'</div>'+
+      '<div class="stock-catalog-card-total">'+stockCatalogFormatQuantity(item.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</div>'+
       '<div class="stock-catalog-card-balances">'+stockCatalogBalanceSummary(item,3)+'</div>'+
-      '<div class="stock-catalog-card-min"><span>Stock minimum</span><strong>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(item.unit||'')+'</strong></div>'+
+      '<div class="stock-catalog-card-min"><span>Stock minimum</span><strong>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(stockCatalogUnitLabel(item.unit))+'</strong></div>'+
       '<div class="stock-catalog-card-actions">'+(stockCatalogCapabilities.moveStock?'<button class="btn" type="button" onclick="stockMovementForm(\''+jsString(String(item.id))+'\')">Mouvement</button>':'')+'<button class="btn primary" type="button" onclick="stockCatalogShowItem(\''+jsString(String(item.id))+'\')">Détail</button></div></article>';
   }).join('');
   const stateNotice=stockCatalogState==='error'?'<p class="notice">'+esc(stockCatalogError)+' <button class="link" type="button" onclick="loadStockCatalog({force:true})">Réessayer</button></p>':stockCatalogState==='loading'?'<p class="help-line">Chargement des catégories…</p>':'';
@@ -197,9 +208,9 @@ stockView=function(){
       '<div class="stock-catalog-head"><div><p class="eyebrow">CATALOGUE</p><h2>Articles · '+items.length+'</h2></div>'+actions+'</div>'+
       '<div class="stock-catalog-toolbar"><label class="stock-catalog-search">Rechercher<input type="search" value="'+esc(stockCatalogQuery)+'" placeholder="PIR, ardoise, vis 80…" oninput="stockCatalogSetQuery(this.value)"></label><label>Catégorie<select onchange="stockCatalogSetCategory(this.value)">'+categoryOptions+'</select></label><label>Emplacement<select onchange="stockCatalogSetLocation(this.value)">'+locationOptions+'</select></label><label class="stock-catalog-low"><input type="checkbox" '+(stockCatalogLowOnly?'checked':'')+' onchange="stockCatalogToggleLow(this.checked)"> Stock bas uniquement</label></div>'+
       stateNotice+
-      '<section class="panel stock-catalog-desktop data-table"><table><thead><tr><th>Article</th><th>Catégorie</th><th>Stock total</th><th>Emplacements</th><th>Minimum</th><th>Référence</th><th>Actions</th></tr></thead><tbody>'+(desktopRows||'<tr><td colspan="7" class="empty">Aucun article ne correspond aux filtres.</td></tr>')+'</tbody></table></section>'+
+      '<section class="panel stock-catalog-desktop data-table" data-table-filter="external"><table><thead><tr><th>Article</th><th>Catégorie</th><th>Stock total</th><th>Emplacements</th><th>Minimum</th><th>Référence</th><th class="stock-catalog-actions-heading">Actions</th></tr></thead><tbody>'+(desktopRows||'<tr><td colspan="7" class="empty">Aucun article ne correspond aux filtres.</td></tr>')+'</tbody></table></section>'+
       '<section class="stock-catalog-mobile">'+(mobileCards||'<div class="panel empty">Aucun article ne correspond aux filtres.</div>')+'</section>'+
-      '<section class="panel stock-catalog-location-list"><div class="panel-head"><h2>Emplacements</h2></div>'+locations.map(function(location){return '<div class="detail-row"><span><strong>'+esc(location.name)+'</strong><small>'+esc(location.type||'')+'</small></span><span class="badge '+(location.status==='active'?'green':'warn')+'">'+esc(location.status||'')+'</span></div>'}).join('')+'</section>'+
+      '<section class="panel stock-catalog-location-list"><div class="panel-head"><h2>Emplacements</h2></div>'+locations.map(function(location){return '<div class="detail-row"><span><strong>'+esc(location.name)+'</strong><small>'+esc(stockCatalogLocationLabel(location.type))+'</small></span><span class="badge '+(location.status==='active'?'green':'warn')+'">'+esc(({active:'Actif',inactive:'Inactif'})[location.status]||location.status||'')+'</span></div>'}).join('')+'</section>'+
     '</div>';
 };
 
@@ -222,7 +233,7 @@ stockForm=async function(itemId){
     '<label>Catégorie<select name="categoryId" onchange="stockCatalogUpdateSubcategorySelect(this.form)">'+stockCatalogCategoryOptions(item.categoryId)+'</select></label>'+
     '<label>Sous-catégorie<select name="subcategoryId">'+stockCatalogSubcategoryOptions(item.categoryId,item.subcategoryId)+'</select></label>'+
     '<label>Unité<input name="unit" required maxlength="60" value="'+esc(item.unit||'unité')+'"></label>'+
-    (creating?'<label>Quantité initiale<input name="quantity" type="number" min="0" step="0.01" value="0" required></label><label>Emplacement initial<select name="locationId"><option value="">Aucun si quantité = 0</option>'+stockLocations.filter(function(location){return location.status==='active'}).map(function(location){return '<option value="'+esc(location.id)+'">'+esc(location.name)+'</option>'}).join('')+'</select></label>':'<label>Quantité totale<input disabled value="'+stockCatalogFormatQuantity(item.quantity)+' '+esc(item.unit||'')+'"><small>La quantité se modifie uniquement par mouvement.</small></label>')+
+    (creating?'<label>Quantité initiale<input name="quantity" type="number" min="0" step="0.01" value="0" required></label><label>Emplacement initial<select name="locationId"><option value="">Aucun si quantité = 0</option>'+stockLocations.filter(function(location){return location.status==='active'}).map(function(location){return '<option value="'+esc(location.id)+'">'+esc(location.name)+'</option>'}).join('')+'</select></label>':'<label>Quantité totale<input disabled value="'+stockCatalogFormatQuantity(item.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'"><small>La quantité se modifie uniquement par mouvement.</small></label>')+
     '</div><div id="stockCatalogSuggestions" class="stock-catalog-suggestions" hidden></div>'+details+'<div class="modal-actions"><button class="btn primary">'+(creating?'Créer l’article':'Enregistrer')+'</button></div></form>');
   const form=document.querySelector('#modal .stock-catalog-form');if(form)stockCatalogUpdateSuggestions(form);
 };
@@ -257,10 +268,10 @@ saveStockItem=async function(event,itemId){
 function stockCatalogShowItem(id){
   const raw=(stockItems||[]).find(function(item){return String(item.id)===String(id)});if(!raw)return;
   const item=stockCatalogDecorate(raw),balances=(item.balances||[]),moves=(item.movements||[]).slice().sort(function(a,b){return String(b.date||'').localeCompare(String(a.date||''))}).slice(0,8),canCosts=Boolean(stockCatalogCapabilities.viewCosts)&&item.unitCost!==undefined;
-  const balanceHtml=balances.length?'<div class="ia-detail-list">'+balances.map(function(balance){return '<div class="ia-detail-line ia-detail-line-short"><span><strong>'+esc(balance.location||'Emplacement')+'</strong></span><span><small>Quantité</small><b>'+stockCatalogFormatQuantity(balance.quantity)+' '+esc(item.unit||'')+'</b></span></div>'}).join('')+'</div>':'<p class="subtle">Aucun stock localisé.</p>';
-  const movesHtml=moves.length?'<div class="ia-detail-list">'+moves.map(function(move){return '<div class="ia-detail-line ia-detail-line-short"><span><strong>'+esc(move.type||'Mouvement')+'</strong><small>'+esc(stockCatalogDate(move.date))+' · '+esc(move.reason||'')+'</small></span><span><small>Quantité</small><b>'+stockCatalogFormatQuantity(move.quantity)+' '+esc(item.unit||'')+'</b></span></div>'}).join('')+'</div>':'<p class="subtle">Aucun mouvement récent.</p>';
+  const balanceHtml=balances.length?'<div class="ia-detail-list">'+balances.map(function(balance){return '<div class="ia-detail-line ia-detail-line-short"><span><strong>'+esc(balance.location||'Emplacement')+'</strong></span><span><small>Quantité</small><b>'+stockCatalogFormatQuantity(balance.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</b></span></div>'}).join('')+'</div>':'<p class="subtle">Aucun stock localisé.</p>';
+  const movesHtml=moves.length?'<div class="ia-detail-list">'+moves.map(function(move){return '<div class="ia-detail-line ia-detail-line-short"><span><strong>'+esc(move.type||'Mouvement')+'</strong><small>'+esc(stockCatalogDate(move.date))+' · '+esc(move.reason||'')+'</small></span><span><small>Quantité</small><b>'+stockCatalogFormatQuantity(move.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</b></span></div>'}).join('')+'</div>':'<p class="subtle">Aucun mouvement récent.</p>';
   const identifiers=[item.reference?'<div><small>Référence interne</small><strong>'+esc(item.reference)+'</strong></div>':'',item.supplierReference?'<div><small>Référence fournisseur</small><strong>'+esc(item.supplierReference)+'</strong></div>':'',item.barcode?'<div><small>Code-barres</small><strong>'+esc(item.barcode)+'</strong></div>':'',item.aliases&&item.aliases.length?'<div><small>Alias</small><strong>'+esc(item.aliases.join(', '))+'</strong></div>':''].join('');
-  modal(item.name||'Article','<div class="ia-detail-grid"><div><small>Catégorie</small><strong>'+esc(stockCatalogPath(item))+'</strong></div><div><small>Stock total</small><strong>'+stockCatalogFormatQuantity(item.quantity)+' '+esc(item.unit||'')+'</strong></div><div><small>Stock minimum</small><strong>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(item.unit||'')+'</strong></div>'+identifiers+'<div><small>Fournisseur</small><strong>'+esc(item.supplier||'—')+'</strong></div>'+(canCosts?'<div><small>Coût unitaire</small><strong>'+money(Number(item.unitCost||0))+'</strong></div><div><small>Valeur HTVA</small><strong>'+money(Number(item.quantity||0)*Number(item.unitCost||0))+'</strong></div>':'')+'</div><h3 class="detail-heading">Répartition par emplacement</h3>'+balanceHtml+'<h3 class="detail-heading">Derniers mouvements</h3>'+movesHtml+'<div class="modal-actions">'+(stockCatalogCapabilities.manageItems?'<button class="btn" type="button" onclick="closeModal();stockForm(\''+jsString(String(item.id))+'\')">Modifier l’article</button>':'')+(stockCatalogCapabilities.moveStock?'<button class="btn primary" type="button" onclick="closeModal();stockMovementForm(\''+jsString(String(item.id))+'\')">Mouvement</button>':'')+'</div>');
+  modal(item.name||'Article','<div class="ia-detail-grid"><div><small>Catégorie</small><strong>'+esc(stockCatalogPath(item))+'</strong></div><div><small>Stock total</small><strong>'+stockCatalogFormatQuantity(item.quantity)+' '+esc(stockCatalogUnitLabel(item.unit))+'</strong></div><div><small>Stock minimum</small><strong>'+stockCatalogFormatQuantity(item.minimum||0)+' '+esc(stockCatalogUnitLabel(item.unit))+'</strong></div>'+identifiers+'<div><small>Fournisseur</small><strong>'+esc(item.supplier||'—')+'</strong></div>'+(canCosts?'<div><small>Coût unitaire</small><strong>'+money(Number(item.unitCost||0))+'</strong></div><div><small>Valeur HTVA</small><strong>'+money(Number(item.quantity||0)*Number(item.unitCost||0))+'</strong></div>':'')+'</div><h3 class="detail-heading">Répartition par emplacement</h3>'+balanceHtml+'<h3 class="detail-heading">Derniers mouvements</h3>'+movesHtml+'<div class="modal-actions">'+(stockCatalogCapabilities.manageItems?'<button class="btn" type="button" onclick="closeModal();stockForm(\''+jsString(String(item.id))+'\')">Modifier l’article</button>':'')+(stockCatalogCapabilities.moveStock?'<button class="btn primary" type="button" onclick="closeModal();stockMovementForm(\''+jsString(String(item.id))+'\')">Mouvement</button>':'')+'</div>');
 };
 
 async function stockCatalogCategoryManager(){

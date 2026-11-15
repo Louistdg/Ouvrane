@@ -43,13 +43,62 @@ function setActiveSocleOrganizationId(value){
   if(activeSocleOrganizationId)localStorage.setItem('socle.activeOrganizationId',activeSocleOrganizationId);
   else localStorage.removeItem('socle.activeOrganizationId');
 }
-async function fetchSocleJson(url,options,organizationId){
-  const headers={...(options.body&&!((options.body instanceof FormData))?{'content-type':'application/json'}:{}),...(organizationId?{'x-socle-organization-id':organizationId}:{}),...(options.headers||{})};
-  const response=await fetch(url,{cache:'no-store',...options,headers}),data=await response.json().catch(()=>({}));
-  return {response,data};
+function socleRequestScope(){
+  const access=globalThis.socleCurrentAccess||{},preview=globalThis.socleAccessPreview||{};
+  return JSON.stringify([activeSocleOrganizationId,access.userId||'',access.roleCode||'',(access.permissions||[]).slice().sort(),preview.userId||'',preview.roleCode||'']);
+}
+function socleAbortError(message='La demande a été annulée.'){return Object.assign(Error(message),{name:'AbortError'})}
+function socleWaitForRetry(milliseconds,signal){
+  return new Promise((resolve,reject)=>{
+    if(signal.aborted){reject(signal.reason||socleAbortError());return}
+    const done=()=>{signal.removeEventListener('abort',abort);resolve()};
+    const timer=setTimeout(done,milliseconds);
+    const abort=()=>{clearTimeout(timer);signal.removeEventListener('abort',abort);reject(signal.reason||socleAbortError())};
+    signal.addEventListener('abort',abort,{once:true});
+  });
+}
+async function fetchSocleJson(url,options={},organizationId=''){
+  const {socleTimeoutMs,signal:callerSignal,...requestOptions}=options;
+  const method=String(requestOptions.method||'GET').toUpperCase(),readOnly=['GET','HEAD'].includes(method);
+  const timeout=Number.isFinite(socleTimeoutMs)?Math.min(120000,Math.max(1000,socleTimeoutMs)):(readOnly?20000:60000);
+  const controller=new AbortController(),scope=socleRequestScope();
+  const abort=()=>controller.abort(callerSignal.reason||socleAbortError());
+  if(callerSignal?.aborted)abort();else callerSignal?.addEventListener('abort',abort,{once:true});
+  let timedOut=false;
+  const timer=setTimeout(()=>{timedOut=true;controller.abort(socleAbortError())},timeout);
+  const headers=new Headers(requestOptions.headers||{});
+  if(requestOptions.body&&!(requestOptions.body instanceof FormData)&&!headers.has('content-type'))headers.set('content-type','application/json');
+  if(organizationId)headers.set('x-socle-organization-id',organizationId);
+  try{
+    for(let attempt=0;attempt<(readOnly?2:1);attempt++){
+      if(controller.signal.aborted)throw controller.signal.reason||socleAbortError();
+      if(socleRequestScope()!==scope)throw socleAbortError('Le contexte de la demande a changé.');
+      const response=await fetch(url,{cache:'no-store',...requestOptions,headers,signal:controller.signal});
+      if(socleRequestScope()!==scope){await response.body?.cancel();throw socleAbortError('Le contexte de la demande a changé.')}
+      const version=response.headers?.get?.('x-ouvrane-version');if(version)globalThis.socleServerVersion=version;
+      const requestId=response.headers?.get?.('x-request-id')||'';
+      if(readOnly&&attempt===0&&[502,503,504].includes(response.status)){
+        const retryAfter=Number(response.headers?.get?.('retry-after'));
+        await response.body?.cancel();
+        await socleWaitForRetry(Number.isFinite(retryAfter)&&retryAfter>0?Math.min(1500,retryAfter*1000):300,controller.signal);
+        continue;
+      }
+      const data=method==='HEAD'?{}:await response.json().catch(error=>{if(controller.signal.aborted)throw error;return {}});
+      if(controller.signal.aborted)throw controller.signal.reason||socleAbortError();
+      if(socleRequestScope()!==scope)throw socleAbortError('Le contexte de la demande a changé.');
+      if(!response.ok)globalThis.socleLastRequestError={status:response.status,requestId,at:new Date().toISOString()};
+      return {response,data};
+    }
+  }catch(error){
+    if(timedOut){
+      const failure=Object.assign(Error(readOnly?'Le serveur met trop de temps à répondre. Réessayez.':'L’enregistrement n’a pas pu être confirmé à temps. Vérifiez le dossier avant de réessayer.'),{code:'REQUEST_TIMEOUT',status:0,outcomeUnknown:!readOnly});
+      globalThis.socleLastRequestError={status:0,requestId:'',at:new Date().toISOString(),code:failure.code};throw failure;
+    }
+    throw error;
+  }finally{clearTimeout(timer);callerSignal?.removeEventListener('abort',abort)}
 }
 async function recoverActiveSocleOrganization(){
-  const response=await fetch('/api/organizations',{cache:'no-store'}),data=await response.json().catch(()=>({}));
+  const {response,data}=await fetchSocleJson('/api/organizations',{},'');
   if(!response.ok)throw Error(data.error||'Impossible de vérifier votre entreprise.');
   const organizations=Array.isArray(data.organizations)?data.organizations:[],ids=new Set(organizations.map(item=>String(item.id)));
   const fallback=ids.has(activeSocleOrganizationId)?activeSocleOrganizationId:String(data.activeOrganizationId||organizations[0]?.id||'');
@@ -67,7 +116,7 @@ async function serverJson(url,options={}){
     await recoverActiveSocleOrganization();
     if(['GET','HEAD'].includes(method)&&activeSocleOrganizationId&&activeSocleOrganizationId!==previous)({response,data}=await fetchSocleJson(url,requestOptions,activeSocleOrganizationId));
   }
-  if(!response.ok){const error=Error(data.error||'Le serveur ne répond pas.');error.status=response.status;throw error}
+  if(!response.ok){const error=Error(data.error||'Le serveur ne répond pas.');error.status=response.status;error.requestId=response.headers?.get?.('x-request-id')||'';throw error}
   return data;
 }
 async function serverBlob(url,options={}){
@@ -268,9 +317,11 @@ async function initOrganizationSwitcher(){
     return null;
   }
 }
-queueMicrotask(initOrganizationSwitcher);
+// Resolve the initial organization before the workspace captures its request scope.
+globalThis.socleOrganizationStartup=Promise.resolve().then(initOrganizationSwitcher);
 
-let serverFinance=null,serverExpenses=[],serverInvoices=[],serverFinanceState='idle',serverFinanceError='';
+let serverFinance=null,serverExpenses=[],serverInvoices=[],serverFinanceState='idle',serverFinanceError='',serverFinanceLoadSerial=0;
+function financeRequestContextKey(){const a=globalThis.socleCurrentAccess||{};return JSON.stringify([typeof activeSocleOrganizationId==='undefined'?'':activeSocleOrganizationId,a.userId||'',a.roleCode||'',Array.isArray(a.permissions)?a.permissions.slice().sort():[],globalThis.socleAccessPreview?.userId||'',Boolean(globalThis.socleWorkspaceLoading),Boolean(globalThis.socleLimitedSession)])}
 let serverSimulationRuns=[],serverSimulationState='idle';
 const centsMoney=value=>new Intl.NumberFormat('fr-BE',{style:'currency',currency:'EUR'}).format(Number(value||0)/100);
 const demoFinance={bankBalance:24380000,availableCash:15742000,clientsOwe:9658000,toPay:4398000,overdue:1846000,overdueCount:2,reserves:2640000,bankName:'Compte professionnel · BE••••••••4721',lastSync:'23/09/2026 · 08:30'};
@@ -282,15 +333,25 @@ const demoExpenses=[
  {expense_date:'2026-09-18',description:'Conteneur déchets · Ferme Leroy',category:'Sous-traitance',total_cents:594000,vat_amount_cents:103091,payment_status:'paid',document_name:'ticket-conteneur-5178.pdf'}
 ];
 const isDemoFinance=()=>!globalThis.SOCLE_PRODUCTION&&company?.demoProfileVersion===REALISTIC_DEMO_VERSION&&!Number(serverFinance?.bankBalance||0)&&!serverExpenses.length;
-async function loadServerFinance(){if(serverFinanceState==='loading')return;serverFinanceState='loading';serverFinanceError='';try{const [summary,expenses,invoices]=await Promise.all([serverJson('/api/accounting/summary'),serverJson('/api/expenses'),serverJson('/api/invoices')]);serverFinance=summary;serverExpenses=expenses.expenses||[];serverInvoices=invoices.invoices||[];serverFinanceState='ready'}catch(error){serverFinanceError=error.message;serverFinanceState='error'}if(view==='accounting'||view==='home')render()}
+async function loadServerFinance(){
+ if(serverFinanceState==='loading')return;
+ const serial=++serverFinanceLoadSerial,key=financeRequestContextKey();
+ serverFinanceState='loading';serverFinanceError='';
+ try{const [summary,expenses,invoices]=await Promise.all([serverJson('/api/accounting/summary'),serverJson('/api/expenses'),serverJson('/api/invoices')]);if(serial!==serverFinanceLoadSerial||key!==financeRequestContextKey())return;serverFinance=summary;serverExpenses=expenses.expenses||[];serverInvoices=invoices.invoices||[];serverFinanceState='ready'}
+ catch(error){if(serial!==serverFinanceLoadSerial||key!==financeRequestContextKey())return;serverFinanceError=error.message;serverFinanceState='error'}
+ if(serial===serverFinanceLoadSerial&&key===financeRequestContextKey()&&(view==='accounting'||view==='home'))render();
+}
 async function loadServerSimulationRuns(){if(serverSimulationState==='loading')return;serverSimulationState='loading';try{const data=await serverJson('/api/simulation-runs?script_code=BATINOVA_SCRIPT_2&version=1');serverSimulationRuns=data.runs||[];serverSimulationState='ready'}catch{serverSimulationRuns=[];serverSimulationState='error'}if(view==='accounting')render()}
 function simulationStatusPanel(){if(serverSimulationState==='idle')queueMicrotask(loadServerSimulationRuns);if(serverSimulationState==='loading'||serverSimulationState==='idle')return '';const run=serverSimulationRuns[0];if(!run)return '';const period=run.summary?.period||{},stats=run.summary||{};return `<section class="panel simulation-status"><div class="panel-head"><div><p class="eyebrow">SIMULATION PRODUIT</p><h2>BatiNova · Script n°2 appliqué</h2><span>${period.from&&period.to?fullDate(period.from)+' → '+fullDate(period.to):'Scénario 10 jours'} · version ${run.version}</span></div><span class="badge green">ACTIF</span></div><div class="finance-grid"><div class="finance-box"><small>Pointages</small><strong>${Number(stats.timeEntries||0)}</strong></div><div class="finance-box"><small>Tâches</small><strong>${Number(stats.tasks||0)}</strong></div><div class="finance-box"><small>Livraisons</small><strong>${Number(stats.deliveries||0)}</strong></div><div class="finance-box"><small>Mouvements stock</small><strong>${Number(stats.stockMovements||0)}</strong></div><div class="finance-box"><small>Factures fournisseur</small><strong>${Number(stats.supplierExpenses||0)}</strong></div><div class="finance-box"><small>Ventilations</small><strong>${Number(stats.allocations||0)}</strong></div></div><p class="help-line">Ces données sont des données de simulation persistées dans SOCLE. Aucun envoi externe réel n'est déclenché.</p></section>`}
-function serverFinancePanel(){if(serverFinanceState==='idle')queueMicrotask(loadServerFinance);if(serverFinanceState==='loading'||serverFinanceState==='idle')return `<section class="panel server-finance loading-card"><strong>Chargement de la situation financière…</strong></section>`;if(serverFinanceState==='error')return `<section class="panel server-finance load-error"><h2>Données financières indisponibles</h2><p>${esc(serverFinanceError)}</p><button class="btn" onclick="serverFinanceState='idle';render()">Réessayer</button></section>`;const demo=isDemoFinance(),s=demo?demoFinance:serverFinance;return `<section class="server-finance"><div class="panel-head"><div><p class="eyebrow">${demo?'JEU DE DÉMONSTRATION':'DONNÉES SERVEUR · ENTREPRISE ISOLÉE'}</p><h2>${demo?'Situation financière de démonstration':'Situation financière réelle'}</h2><span>${demo?'Exemple cohérent pour visualiser le tableau de bord : aucun compte bancaire réel n’est connecté.':'Calculée côté serveur à partir des factures, dépenses, comptes et réserves enregistrés.'}</span></div><span class="badge ${demo?'warn':(s.quality.complete?'green':'warn')}">${demo?'DÉMONSTRATION':(s.quality.complete?'Données disponibles':'À configurer')}</span></div>${demo?`<div class="notice"><strong>${esc(s.bankName)}</strong> · Dernière mise à jour fictive : ${s.lastSync}</div>`:''}<div class="server-finance-grid"><article><small>Argent en banque</small><strong>${centsMoney(s.bankBalance)}</strong></article><article><small>Réellement disponible</small><strong class="${s.availableCash<0?'negative-money':''}">${centsMoney(s.availableCash)}</strong></article><article><small>Les clients vous doivent</small><strong>${centsMoney(s.clientsOwe)}</strong></article><article><small>À payer</small><strong>${centsMoney(s.toPay)}</strong></article><article><small>Factures en retard</small><strong>${centsMoney(s.overdue)}</strong><span>${s.overdueCount} facture(s)</span></article><article><small>Réserves mises de côté</small><strong>${centsMoney(s.reserves)}</strong></article></div>${!demo&&s.quality.missing.length?`<p class="notice"><strong>Estimation incomplète.</strong> ${s.quality.missing.map(esc).join(' · ')}</p>`:''}</section>`}
+function serverFinancePanel(){if(serverFinanceState==='idle')queueMicrotask(loadServerFinance);if(serverFinanceState==='loading'||serverFinanceState==='idle')return `<section class="panel server-finance loading-card"><strong>Chargement de la situation financière…</strong></section>`;if(serverFinanceState==='error')return `<section class="panel server-finance load-error"><h2>Données financières indisponibles</h2><p>${esc(serverFinanceError)}</p><button class="btn" onclick="serverFinanceState='idle';render()">Réessayer</button></section>`;const demo=isDemoFinance(),s=demo?demoFinance:serverFinance;return `<section class="server-finance"><div class="panel-head"><div><p class="eyebrow">${demo?'JEU DE DÉMONSTRATION':'DONNÉES SERVEUR · ENTREPRISE ISOLÉE'}</p><h2>${demo?'Situation financière de démonstration':'Situation financière réelle'}</h2><span>${demo?'Exemple cohérent pour visualiser le tableau de bord : aucun compte bancaire réel n’est connecté.':'Calculée côté serveur à partir des factures, dépenses, comptes et réserves enregistrés.'}</span></div><span class="badge ${demo?'warn':(s.quality.complete?'green':'warn')}">${demo?'DÉMONSTRATION':(s.quality.complete?'Données disponibles':'À configurer')}</span></div>${demo?`<div class="notice"><strong>${esc(s.bankName)}</strong> · Dernière mise à jour fictive : ${s.lastSync}</div>`:''}<div class="server-finance-grid"><article><small>Argent en banque</small><strong>${(s.bankBalance===null?'À confirmer':centsMoney(s.bankBalance))}</strong></article><article><small>Réellement disponible</small><strong class="${s.availableCash<0?'negative-money':''}">${(s.availableCash===null?'À confirmer':centsMoney(s.availableCash))}</strong></article><article><small>Les clients vous doivent</small><strong>${centsMoney(s.clientsOwe)}</strong></article><article><small>À payer</small><strong>${centsMoney(s.toPay)}</strong></article><article><small>Factures en retard</small><strong>${centsMoney(s.overdue)}</strong><span>${s.overdueCount} facture(s)</span></article><article><small>Réserves mises de côté</small><strong>${centsMoney(s.reserves)}</strong></article></div>${!demo&&s.quality.missing.length?`<p class="notice"><strong>Estimation incomplète.</strong> ${s.quality.missing.map(esc).join(' · ')}</p>`:''}</section>`}
 
 function invoiceStatusLabel(status){return status==='paid'?'Payée':status==='partially_paid'?'Partiellement payée':status==='credited'?'Soldée par avoir':status==='credit_due'?'Crédit client à traiter':'À recevoir'}
 function serverInvoiceById(id){return serverInvoices.find(invoice=>String(invoice.id)===String(id))}
-function serverInvoiceForm(){const suggested='FAC-'+reference.slice(0,4)+'-'+String(serverInvoices.length+1).padStart(3,'0');modal('Nouvelle facture client',`<form onsubmit="saveServerInvoice(event)"><div class="form-two"><label>Chantier<select name="projectId"><option value="">Sans chantier</option>${jobs.map(job=>`<option value="${job.id}">${esc(job.reference||job.name)} · ${esc(job.name)}</option>`).join('')}</select></label><label>Numéro<input name="invoiceNumber" required maxlength="120" value="${esc(suggested)}"></label><label>Date<input name="issueDate" type="date" required value="${reference}"></label><label>Échéance<input name="dueDate" type="date" required value="${reference}"></label><label>Montant HTVA (€)<input name="subtotal" type="number" min="0.01" step="0.01" required></label><label>TVA (€)<input name="vat" type="number" min="0" step="0.01" value="0" required></label></div><label>Note<textarea name="notes" maxlength="2000" placeholder="Situation, acompte, avancement…"></textarea></label><p class="notice">La facture est créée côté serveur. Aucun envoi réel au client ou à Peppol n'est déclenché.</p><p id="serverInvoiceCreateError" class="form-error"></p><div class="modal-actions"><button class="btn primary">Créer la facture</button></div></form>`)}
-async function saveServerInvoice(event){event.preventDefault();const form=new FormData(event.target),button=event.target.querySelector('button.primary'),subtotal=Math.round(Number(form.get('subtotal'))*100),vat=Math.round(Number(form.get('vat'))*100),error=document.querySelector('#serverInvoiceCreateError');if(!Number.isSafeInteger(subtotal)||subtotal<=0||!Number.isSafeInteger(vat)||vat<0){if(error)error.textContent='Montant ou TVA invalide.';return}if(button)button.disabled=true;try{await serverJson('/api/invoices',{method:'POST',body:JSON.stringify({customerId:null,projectId:form.get('projectId')||null,invoiceNumber:String(form.get('invoiceNumber')||'').trim(),issueDate:form.get('issueDate'),dueDate:form.get('dueDate'),subtotalCents:subtotal,vatAmountCents:vat,notes:String(form.get('notes')||'').trim()})});closeModal();serverFinanceState='idle';await loadServerFinance();render();toast('Facture client créée côté serveur.')}catch(e){if(error)error.textContent=e.message;if(button)button.disabled=false}}
+let serverInvoiceQuotes=[];
+function serverQuoteInvoiceAmounts(quote){const lines=Array.isArray(quote?.lines)?quote.lines:[],subtotal=Math.round(lines.reduce((sum,line)=>sum+Number(line.qty||0)*Number(line.price||0),0)*100),vat=Math.round(lines.reduce((sum,line)=>sum+Number(line.qty||0)*Number(line.price||0)*Number(line.vat||0)/100,0)*100);return{subtotal,vat}}
+function applyServerInvoiceQuote(id){const form=document.querySelector('#serverInvoiceCreateForm');if(!form)return;const quote=serverInvoiceQuotes.find(item=>String(item.id)===String(id)),subtotal=form.elements.subtotal,vat=form.elements.vat,project=form.elements.projectId,help=document.querySelector('#serverInvoiceQuoteHelp');if(!quote){subtotal.readOnly=false;vat.readOnly=false;subtotal.value='';vat.value='0';if(help)help.textContent='Sans devis source : saisie manuelle.';return}const amounts=serverQuoteInvoiceAmounts(quote);if(quote.projectId&&![...project.options].some(option=>String(option.value)===String(quote.projectId)))project.add(new Option(quote.reference||quote.title||quote.projectId,String(quote.projectId)));project.value=quote.projectId||'';subtotal.value=(amounts.subtotal/100).toFixed(2);vat.value=(amounts.vat/100).toFixed(2);subtotal.readOnly=true;vat.readOnly=true;if(help)help.textContent='Source : '+(quote.reference||quote.title||quote.id)+' · montants repris du devis accepté.'}
+async function serverInvoiceForm(){const suggested='FAC-'+reference.slice(0,4)+'-'+String(serverInvoices.length+1).padStart(3,'0'),already=new Set(serverInvoices.map(item=>String(item.quoteId||'')).filter(Boolean));serverInvoiceQuotes=[];try{const data=await serverJson('/api/quotes');serverInvoiceQuotes=(data.quotes||[]).filter(quote=>quote.status==='accepted'&&!already.has(String(quote.id))&&Array.isArray(quote.lines)&&quote.lines.every(line=>Number.isFinite(Number(line.price))))}catch{}modal('Nouvelle facture client',`<form id="serverInvoiceCreateForm" onsubmit="saveServerInvoice(event)"><label>Devis accepté (optionnel)<select name="quoteId" onchange="applyServerInvoiceQuote(this.value)"><option value="">Saisie manuelle</option>${serverInvoiceQuotes.map(quote=>`<option value="${esc(quote.id)}">${esc(quote.reference||quote.title||quote.id)} · ${esc(quote.client||'Client')}</option>`).join('')}</select></label><p id="serverInvoiceQuoteHelp" class="help-line">${serverInvoiceQuotes.length?'Choisissez un devis accepté pour reprendre son chantier et ses montants sans ressaisie.':'Aucun devis accepté disponible ou autorisé.'}</p><div class="form-two"><label>Chantier<select name="projectId"><option value="">Sans chantier</option>${jobs.map(job=>`<option value="${job.id}">${esc(job.reference||job.name)} · ${esc(job.name)}</option>`).join('')}</select></label><label>Numéro<input name="invoiceNumber" required maxlength="120" value="${esc(suggested)}"></label><label>Date<input name="issueDate" type="date" required value="${reference}"></label><label>Échéance<input name="dueDate" type="date" required value="${reference}"></label><label>Montant HTVA (€)<input name="subtotal" type="number" min="0.01" step="0.01" required></label><label>TVA (€)<input name="vat" type="number" min="0" step="0.01" value="0" required></label></div><label>Note<textarea name="notes" maxlength="2000" placeholder="Situation, acompte, avancement…"></textarea></label><p class="notice">Avec un devis source, client, chantier et montants sont contrôlés côté serveur. Aucun envoi réel au client ou à Peppol n'est déclenché.</p><p id="serverInvoiceCreateError" class="form-error"></p><div class="modal-actions"><button class="btn primary">Créer la facture</button></div></form>`)}
+async function saveServerInvoice(event){event.preventDefault();const form=new FormData(event.target),button=event.target.querySelector('button.primary'),subtotal=Math.round(Number(form.get('subtotal'))*100),vat=Math.round(Number(form.get('vat'))*100),error=document.querySelector('#serverInvoiceCreateError'),quoteId=form.get('quoteId')||null;if(!Number.isSafeInteger(subtotal)||subtotal<=0||!Number.isSafeInteger(vat)||vat<0){if(error)error.textContent='Montant ou TVA invalide.';return}if(button)button.disabled=true;try{await serverJson('/api/invoices',{method:'POST',body:JSON.stringify({customerId:null,projectId:form.get('projectId')||null,quoteId,invoiceNumber:String(form.get('invoiceNumber')||'').trim(),issueDate:form.get('issueDate'),dueDate:form.get('dueDate'),subtotalCents:subtotal,vatAmountCents:vat,notes:String(form.get('notes')||'').trim()})});closeModal();serverFinanceState='idle';await loadServerFinance();render();toast(quoteId?'Facture client créée depuis le devis accepté.':'Facture client créée côté serveur.')}catch(e){if(error)error.textContent=e.message;if(button)button.disabled=false}}
 async function refreshServerInvoices(){serverFinanceState='idle';await loadServerFinance()}
 function serverInvoicesPanel(){if(serverFinanceState!=='ready')return '';return `<section class="panel server-invoices"><div class="panel-head"><div><p class="eyebrow">FACTURES CLIENTS · SERVEUR</p><h2>Paiements, avoirs et soldes</h2><span>Le restant dû et le statut sont calculés côté serveur.</span></div><span><span class="badge green">${serverInvoices.length} facture(s)</span> <button class="btn primary" onclick="serverInvoiceForm()">+ Facture client</button></span></div>${serverInvoices.length?`<div class="data-table"><table><thead><tr><th>Facture</th><th>Total</th><th>Payé</th><th>Avoirs</th><th>Restant</th><th>État</th></tr></thead><tbody>${serverInvoices.map(invoice=>`<tr><td><button class="link" onclick="openServerInvoice('${jsString(invoice.id)}')"><strong>${esc(invoice.invoiceNumber)}</strong></button></td><td>${centsMoney(invoice.totalCents)}</td><td>${centsMoney(invoice.paidCents)}</td><td>${centsMoney(invoice.creditNoteCents)}</td><td><strong>${centsMoney(invoice.remainingCents)}</strong>${invoice.customerCreditCents?`<small>Crédit client ${centsMoney(invoice.customerCreditCents)}</small>`:''}</td><td><span class="badge ${invoice.status==='paid'||invoice.status==='credited'?'green':invoice.status==='partially_paid'?'warn':''}">${esc(invoiceStatusLabel(invoice.status))}</span></td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Aucune facture client serveur.</div>'}</section>`}
 function openServerInvoice(id){const invoice=serverInvoiceById(id);if(!invoice)return toast('Facture serveur introuvable.');const paymentRows=invoice.payments.map(row=>`<div class="detail-row"><span><strong>${centsMoney(row.amountCents)}</strong><small>${fullDate(row.paymentDate)} · ${esc(row.paymentMethod)}${row.reference?' · '+esc(row.reference):''}</small></span><small>${esc(row.note||'')}</small></div>`).join('')||'<div class="empty">Aucun paiement enregistré.</div>',creditRows=invoice.creditNotes.map(row=>`<div class="detail-row"><span><strong>${centsMoney(row.amountCents)}</strong><small>${fullDate(row.creditDate)} · ${esc(row.reference||'Avoir')}</small></span><small>${esc(row.reason)}</small></div>`).join('')||'<div class="empty">Aucun avoir enregistré.</div>';modal(invoice.invoiceNumber,`<div class="server-invoice-summary"><div class="detail-row"><span>Total facture</span><b>${centsMoney(invoice.totalCents)}</b></div><div class="detail-row"><span>Total payé</span><b>${centsMoney(invoice.paidCents)}</b></div><div class="detail-row"><span>Total avoirs</span><b>${centsMoney(invoice.creditNoteCents)}</b></div><div class="detail-row"><span>Restant dû</span><b>${centsMoney(invoice.remainingCents)}</b></div>${invoice.customerCreditCents?`<div class="notice"><strong>Crédit client à traiter : ${centsMoney(invoice.customerCreditCents)}</strong><br>Aucun remboursement bancaire n'est créé automatiquement.</div>`:''}<div class="detail-row"><span>État</span><b>${esc(invoiceStatusLabel(invoice.status))}</b></div></div><h3>Paiements</h3>${paymentRows}<h3>Avoirs</h3>${creditRows}<div class="modal-actions"><button class="btn" onclick="closeModal()">Fermer</button>${invoice.remainingCents>0&&(canFieldAction('markPayments')||canModuleAction('accounting','edit'))?`<button class="btn primary" onclick="serverPaymentForm('${jsString(invoice.id)}')">+ Paiement</button>`:''}${canModuleAction('accounting','edit')?`<button class="btn" onclick="serverCreditNoteForm('${jsString(invoice.id)}')">+ Avoir</button>`:''}</div>`)}
@@ -428,6 +489,19 @@ async function iaCLoadQuotes(){
   }catch(error){if(generation!==iaCQuoteWorkspaceGeneration)return;iaCQuotesState='error';iaCQuotesError=error.message||'Devis serveur indisponibles.'}
   if(view==='quotes')render();
 }
+function iaCCanViewQuotePrices(){
+  const access=globalThis.socleCurrentAccess;
+  if(access){
+    if(access.owner||access.roleCode==='OWNER')return true;
+    const codes=new Set(access.permissions||[]);
+    if(access.roleCode==='WORKER'||!codes.has('quotes.prices.view'))return false;
+    if(access.roleCode==='ACCOUNTING')return true;
+    return !['Ses propres informations','Ses propres informations et chantiers','Ses chantiers uniquement'].includes(access.scope);
+  }
+  return !globalThis.SOCLE_PRODUCTION&&(sessionAccessKey==='owner'||Boolean(sessionAssignment()?.sensitive?.quotePrices));
+}
+function iaCQuoteHasPrices(quote){return Array.isArray(quote.lines)&&quote.lines.every(line=>line.price!==null&&line.price!==undefined&&Number.isFinite(Number(line.price))&&line.vat!==null&&line.vat!==undefined&&Number.isFinite(Number(line.vat)))}
+function iaCQuoteAmountLabel(quote){return !iaCCanViewQuotePrices()?'Masqué':iaCQuoteHasPrices(quote)?money(quoteGross(quote)):'Non disponible'}
 function iaCQuotesView(){
   if(iaCQuotesState==='idle')queueMicrotask(iaCLoadQuotes);
   if(iaCQuotesState==='loading'||iaCQuotesState==='idle')return heading('Devis','Chaîne commerciale serveur : devis, TVA, acceptation et suivi.',false)+'<section class="panel loading-card"><strong>Chargement des devis…</strong></section>';
@@ -436,12 +510,12 @@ function iaCQuotesView(){
   const statuses=['Tous','Brouillon','À présenter','Accepté','Refusé','Expiré'];
   const filtered=quotes.filter(q=>(iaCQuoteStatus==='all'||q.status===iaCQuoteStatus)&&[q.ref,q.title,q.client,q.status].join(' ').toLowerCase().includes(query)).sort((a,b)=>String(b.date||'').localeCompare(String(a.date||''))||String(a.ref||'').localeCompare(String(b.ref||''),'fr'));
   const visible=filtered.slice(0,iaCQuoteVisibleCount),remaining=Math.max(0,filtered.length-visible.length);
-  const totalAccepted=filtered.filter(q=>q.status==='Accepté').reduce((n,q)=>n+quoteGross(q),0);
+  const accepted=filtered.filter(q=>q.status==='Accepté'),acceptedAmount=!iaCCanViewQuotePrices()?'Masqué':accepted.every(iaCQuoteHasPrices)?money(accepted.reduce((n,q)=>n+quoteGross(q),0)):'Non disponible';
   return heading('Devis','Chaîne commerciale serveur : devis, TVA, acceptation et suivi.',false)+
-    '<div class="quote-summary"><div><small>Devis suivis</small><strong>'+filtered.length+'</strong></div><div><small>Acceptés · TVAC</small><strong>'+money(totalAccepted)+'</strong></div>'+(canModuleAction('quotes','add')?'<button class="btn primary" onclick="quoteForm()">+ Créer un devis</button>':'')+'</div>'+
+    '<div class="quote-summary"><div><small>Devis suivis</small><strong>'+filtered.length+'</strong></div><div><small>Acceptés · TVAC</small><strong>'+acceptedAmount+'</strong></div>'+(canModuleAction('quotes','add')?'<button class="btn primary" onclick="quoteForm()">+ Créer un devis</button>':'')+'</div>'+
     '<div class="ia-c-finance-toolbar"><input placeholder="Rechercher référence, client, chantier…" value="'+esc(iaCQuoteQuery)+'" oninput="iaCQuoteQuery=this.value;iaCQuoteVisibleCount=5;render()"><div class="filter-pills">'+statuses.map(s=>'<button class="'+(iaCQuoteStatus===s|| (s==='Tous'&&iaCQuoteStatus==='all')?'selected':'')+'" onclick="iaCQuoteStatus='+(s==='Tous'?"'all'":"'"+jsString(s)+"'")+';iaCQuoteVisibleCount=5;render()">'+s+'</button>').join('')+'</div></div>'+
     '<section class="panel quote-list"><div class="quote-list-head"><span>Référence / objet</span><span>Client & chantier</span><span>Validité</span><span>Total TVAC</span><span>État</span><span></span></div>'+
-    (visible.map(q=>{const j=jobs.find(x=>String(x.id)===String(q.job));return '<button class="quote-list-row" onclick="showQuote(\''+jsString(q.id)+'\')"><span><b>'+esc(q.ref||'Devis')+'</b><small>'+esc(q.title||'')+'</small></span><span><b>'+esc(q.client||j?.client||'')+'</b><small>'+esc(j?.name||'Chantier')+'</small></span><span>'+fullDate(q.validUntil)+'</span><strong>'+money(quoteGross(q))+'</strong><span class="badge '+(q.status==='Accepté'?'green':'warn')+'">'+esc(q.status)+'</span><i>↗</i></button>'}).join('')||'<div class="empty">Aucun devis correspondant.</div>')+
+    (visible.map(q=>{const j=jobs.find(x=>String(x.id)===String(q.job));return '<button class="quote-list-row" onclick="showQuote(\''+jsString(q.id)+'\')"><span><b>'+esc(q.ref||'Devis')+'</b><small>'+esc(q.title||'')+'</small></span><span><b>'+esc(q.client||j?.client||'')+'</b><small>'+esc(j?.name||'Chantier')+'</small></span><span>'+fullDate(q.validUntil)+'</span><strong>'+esc(iaCQuoteAmountLabel(q))+'</strong><span class="badge '+(q.status==='Accepté'?'green':'warn')+'">'+esc(q.status)+'</span><i>↗</i></button>'}).join('')||'<div class="empty">Aucun devis correspondant.</div>')+
     (remaining>0?'<div class="ia-c-list-more"><button class="btn" onclick="iaCQuoteVisibleCount=quotes.length;render()">Afficher les '+remaining+' autres</button></div>':'')+
     '</section><p class="help-line">Les prix et taux restent soumis aux permissions Finance/RBAC. Les données sont enregistrées côté serveur.</p>';
 }
@@ -478,6 +552,7 @@ const iaCShowQuoteBase=showQuote;
 showQuote=function(id){
   const quote=quotes.find(item=>String(item.id)===String(id));if(!quote)return;
   if(iaCIsHistoricalQuote(id))return iaCShowHistoricalQuote(id);
+  if(!iaCCanViewQuotePrices()||!iaCQuoteHasPrices(quote))return showWorkerQuote(quote.id);
   iaCShowQuoteBase(quote.id);
   const select=document.querySelector('#modalbody select[onchange*="quotes.find"]');
   if(select)select.setAttribute('onchange',"iaCUpdateQuoteStatus('"+jsString(id)+"',this.value)");
@@ -515,7 +590,7 @@ function iaCReadOnlyQuoteActions(quote,worker=false){
 function iaCShowHistoricalQuote(id){
   const quote=quotes.find(item=>String(item.id)===String(id));if(!quote)return;
   if(!canModuleAction('quotes','view'))return denyAccess('Vous ne pouvez pas consulter les devis.');
-  if(sessionAccessKey!=='owner'&&!sessionAssignment()?.sensitive?.quotePrices)return showWorkerQuote(quote.id);
+  if(!iaCCanViewQuotePrices())return showWorkerQuote(quote.id);
   iaCShowQuoteBase(quote.id);iaCReadOnlyQuoteActions(quote);
 }
 const iaCShowWorkerQuoteBase=showWorkerQuote;
@@ -580,16 +655,19 @@ accountingView=function(){
 };
 
 /* IA-C — banque et rapprochement serveur */
-let iaCBankState='idle',iaCBankAccounts=[],iaCBankTransactions=[];
+let iaCBankState='idle',iaCBankAccounts=[],iaCBankTransactions=[],iaCBankLoadSerial=0;
 async function iaCLoadBank(){
   if(iaCBankState==='loading')return;
+  const serial=++iaCBankLoadSerial,key=financeRequestContextKey();
   iaCBankState='loading';render();
   try{
     const [accountsData,transactionsData]=await Promise.all([serverJson('/api/bank/accounts'),serverJson('/api/bank/transactions?limit=250')]);
+    if(serial!==iaCBankLoadSerial||key!==financeRequestContextKey())return;
     iaCBankAccounts=Array.isArray(accountsData.accounts)?accountsData.accounts:[];
     iaCBankTransactions=Array.isArray(transactionsData.transactions)?transactionsData.transactions:[];
     iaCBankState='ready';
-  }catch(error){iaCBankState='error';}
+  }catch(error){if(serial!==iaCBankLoadSerial||key!==financeRequestContextKey())return;iaCBankState='error';}
+  if(serial!==iaCBankLoadSerial||key!==financeRequestContextKey())return;
   render();
 }
 async function iaCAddBankAccount(){
@@ -616,7 +694,7 @@ function iaCBankPanel(){
   if(iaCBankState==='idle'){queueMicrotask(iaCLoadBank);return '<section class="panel loading-card"><strong>Chargement de la banque serveur…</strong></section>';}
   if(iaCBankState==='loading')return '<section class="panel loading-card"><strong>Chargement de la banque serveur…</strong></section>';
   if(iaCBankState==='error')return '<section class="panel load-error"><h2>Banque serveur indisponible</h2><button class="btn" onclick="iaCBankState=\'idle\';render()">Réessayer</button></section>';
-  const accountCards=iaCBankAccounts.map(a=>'<div class="detail-row"><span><strong>'+esc(a.name)+'</strong><small>'+esc(a.iban||'IBAN non renseigné')+' · '+esc(a.currency)+'</small></span><strong>'+centsMoney(a.currentBalanceCents)+'</strong></div>').join('');
+  const accountCards=iaCBankAccounts.map(a=>'<div class="detail-row"><span><strong>'+esc(a.name)+'</strong><small>'+esc(a.iban||'IBAN non renseigné')+' · '+esc(a.currency)+'</small></span><strong>'+(a.balanceKnown===false||a.currentBalanceCents===null?'Solde à confirmer':centsMoney(a.currentBalanceCents))+'</strong></div>').join('');
   const txRows=iaCBankTransactions.slice(0,25).map(tx=>'<tr><td>'+fullDate(tx.transactionDate)+'</td><td><strong>'+esc(tx.counterpartyName||tx.description||'Mouvement')+'</strong><small>'+esc(tx.reference||'')+'</small></td><td>'+centsMoney(tx.amountCents)+'</td><td><span class="badge '+(tx.status==='reconciled'?'green':tx.status==='ignored'?'':'warn')+'">'+(tx.status==='reconciled'?'Rapproché':tx.status==='ignored'?'Ignoré':'À rapprocher')+'</span></td><td>'+(tx.status==='reconciled'?'<button class="btn" onclick="iaCUnreconcileBankTransaction(\''+jsString(tx.id)+'\')">Annuler le rapprochement</button>':tx.status==='ignored'?'<span class="subtle">Exclu</span>':'<button class="btn" onclick="iaCReconcileBankTransaction(\''+jsString(tx.id)+'\')">Vérifier et rapprocher</button>')+'</td></tr>').join('');
   return '<section class="panel ia-c-bank-panel"><div class="panel-head"><div><p class="eyebrow">BANQUE · SERVEUR</p><h2>'+iaCBankAccounts.length+' compte(s) · '+iaCBankTransactions.length+' mouvement(s)</h2><span>Le solde déclaré du compte reste distinct des pièces et paiements SOCLE.</span></div><div class="contact-actions"><button class="btn" onclick="iaCAddBankAccount()">+ Compte</button><button class="btn primary" onclick="iaCAddBankTransaction()">+ Saisir un mouvement</button></div></div><div class="detail-list">'+(accountCards||'<div class="empty">Aucun compte bancaire.</div>')+'</div><div class="data-table"><table><thead><tr><th>Date</th><th>Contrepartie</th><th>Montant</th><th>État</th><th></th></tr></thead><tbody>'+(txRows||'<tr><td colspan="5"><div class="empty">Aucun mouvement bancaire.</div></td></tr>')+'</tbody></table></div></section>';
 }
@@ -627,3 +705,17 @@ function iaCAccountingView(){
   return managementTabs('accounting')+heading('Comptabilité','Un cockpit simple : ce qui est en banque, ce qui est dû et ce qui reste à vérifier.',false)+simulationStatusPanel()+serverFinancePanel()+iaCAccountingInbox()+iaCFinanceToolbar()+iaCBankPanel()+section+jobProgressAccountingView()+'<p class="notice">Le solde bancaire est séparé des factures et dépenses. Un rapprochement ne crée jamais un paiement automatiquement. La marge chantier reste une estimation tant que les heures, achats et pièces utiles ne sont pas complets. Les déclarations fiscales définitives restent à valider avec le comptable.</p>';
 }
 accountingView=iaCAccountingView;
+let socleDiagnosticsSequence=0;
+globalThis.showSocleDiagnostics=async function(){
+ const sequence=++socleDiagnosticsSequence,last=globalThis.socleLastRequestError;
+ modal('État de connexion','<section id="socleDiagnostics"><p role="status">Vérification de la connexion…</p></section>');
+ const root=document.querySelector('#socleDiagnostics'),dialog=document.querySelector('#modal');
+ const current=()=>sequence===socleDiagnosticsSequence&&root?.isConnected&&dialog?.open;
+ let connection=navigator.onLine===false?'Hors ligne':'Serveur indisponible',version=globalThis.socleServerVersion||'Non identifiée';
+ try{const {response,data}=await fetchSocleJson('/health',{socleTimeoutMs:8000},'');if(response.ok&&data.status==='ok'){connection='Connexion au serveur établie';version=String(data.version||version).slice(0,16)}}catch{}
+ if(!current())return;
+ const date=last?.at?new Date(last.at).toLocaleString('fr-BE'):'';
+ const lines=['Ouvrane — état de connexion','Connexion : '+connection,'Version : '+version,...(last?['Dernière erreur : '+(last.status?'HTTP '+last.status:'délai de réponse dépassé'),'Date : '+date,'Référence support : '+(last.requestId||'non disponible')]:['Aucune erreur signalée pendant cette session.'])];
+ root.innerHTML='<dl>'+[['Connexion',connection],['Version',version],...(last?[['Dernière erreur',last.status?'HTTP '+last.status:'Délai de réponse dépassé'],['Date',date],['Référence support',last.requestId||'Non disponible']]:[])].map(([label,value])=>'<div class="detail-row"><dt>'+esc(label)+'</dt><dd>'+esc(value)+'</dd></div>').join('')+'</dl><p class="notice">Ces informations peuvent aider à retrouver un problème de chargement. Elles ne contiennent pas vos dossiers.</p><div class="modal-actions"><button type="button" class="btn" data-copy-diagnostics>Copier les informations</button></div>';
+ root.querySelector('[data-copy-diagnostics]').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(lines.join('\n'));toast('Informations copiées.')}catch{toast('La copie est indisponible dans ce navigateur.')}});
+};

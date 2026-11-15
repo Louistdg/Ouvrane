@@ -1,3 +1,5 @@
+import {validatePlanSketch} from './plan-sketch.js';
+import {calculatePlanRegions} from './plan-regions.js';
 const fail=message=>{throw Object.assign(Error(message),{status:400})};
 const finite=(v,min,max,label)=>{if(typeof v!=='number'||!Number.isFinite(v)||v<min||v>max)fail(label+' invalide.');return v};
 const point=p=>({x:finite(p?.x,0,1,'Coordonnée x'),y:finite(p?.y,0,1,'Coordonnée y')});
@@ -28,5 +30,11 @@ export function calculatePlanPage(data){
   }
   annotations.push({id:a.id,kind:a.kind,label,points});results.push({id:a.id,kind:a.kind,label,quantity:quantity===null?null:quantity.toFixed(3),unit});
  }
- return {input:{pageNumber:data.pageNumber,pageWidth:width,pageHeight:height,calibration,annotations},result:{annotations:results,scaleMetresPerPageUnit:scale===null?null:scale.toString(),surfaceM2:results.filter(a=>a.kind==='area').reduce((s,a)=>s+Number(a.quantity),0).toFixed(3),openingsM2:results.filter(a=>a.kind==='opening').reduce((s,a)=>s+Number(a.quantity),0).toFixed(3)}};
+ let regions;
+ try{regions=calculatePlanRegions(annotations,scale===null?0:width*height*scale*scale)}catch(error){if(error.status===400)throw error;fail('Contours trop complexes ou incohérents. Vérifiez les tracés avant de recommencer.')}
+ for(const measure of results)if(measure.kind==='opening'){const quantity=regions.deductibleById.get(measure.id);measure.deductibleQuantity=quantity===null?null:quantity.toFixed(3)}
+ const sketch=data.sketch===undefined?null:validatePlanSketch(data.sketch,width,height,scale,ids);
+ return {input:{pageNumber:data.pageNumber,pageWidth:width,pageHeight:height,calibration,annotations,...(sketch?{sketch:sketch.input}:{})},result:{...(sketch?{sketch:sketch.result}:{}),geometryVersion:2,annotations:results,scaleMetresPerPageUnit:scale===null?null:scale.toString(),hasSurfaceContour:regions.hasSurfaceContour,surfaceM2:regions.surface.toFixed(3),openingsM2:regions.deduction.toFixed(3),netSurfaceM2:regions.netSurface===null?null:regions.netSurface.toFixed(3)}};
 }
+
+export {planSketchForTransmission} from './plan-sketch.js';

@@ -22,6 +22,7 @@ var ENTRIES=[
   {route:'permissions',label:'Droits d’accès',short:'Droits',purpose:'Choisissez qui peut voir et faire chaque action.',icon:'',group:'settings',order:160,permission:'permissions',type:'SETTINGS'},
   {route:'partners',label:'Partenaires',short:'Partenaires',purpose:'Suivez les partenaires et les chantiers partagés.',icon:'',group:'settings',order:170,permission:'partners',type:'SETTINGS'},
   {route:'company',label:'Entreprise',short:'Entreprise',purpose:'Mettez à jour les coordonnées et les règles de l’entreprise.',icon:'',group:'settings',order:180,permission:'company',type:'SETTINGS'},
+  {route:'connecteurs',label:'Outils & imports',short:'Outils',purpose:'Plans, métrés, tarifs et lecture des pièces selon vos accès.',icon:'⇄',group:'settings',order:190,type:'SETTINGS'},
   {route:'profitability',label:'Rentabilité des chantiers',group:'internal',order:1000,permission:'profitability',type:'INTERNAL_VIEW',parent:'accounting'},
   {route:'training',label:'Formations',group:'internal',order:1010,permission:'training',type:'INTERNAL_VIEW',parent:'people'},
   {route:'news',label:'Actualités & règles',group:'internal',order:1020,permission:'news',type:'INTERNAL_VIEW',parent:'home'},
@@ -38,11 +39,13 @@ function available(route){
   var entry=byRoute(route);
   if(!entry)return false;
   if(entry.type==='INTERNAL_VIEW')return true;
+  if(route==='connecteurs')return typeof globalThis.socleToolsCatalogueAllowed==='function';
   return route==='home'||routeIsRegistered(route);
 }
 function allowed(route){
   var entry=byRoute(route);
   if(!entry||!available(route))return false;
+  if(route==='connecteurs')return Boolean(globalThis.socleToolsCatalogueAllowed());
   if(typeof canViewModule!=='function')return true;
   return Boolean(canViewModule(entry.permission||entry.route));
 }

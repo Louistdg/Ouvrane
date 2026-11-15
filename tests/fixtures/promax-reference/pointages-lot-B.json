@@ -1,0 +1,30 @@
+{
+  "fixture": "promax-reference-pointages-lot-B",
+  "purpose": "Synthetic characterization cases for Ouvrane time-entry API; not payroll rules.",
+  "organization": "pointage-lot-b-org",
+  "project": "pointage-lot-b-project",
+  "team": "pointage-lot-b-team",
+  "person": "pointage-lot-b-person",
+  "cases": {
+    "rejectedCorrection": {
+      "date": "2026-10-24",
+      "arrival": "08:00",
+      "departure": "12:00",
+      "proposedArrival": "08:15",
+      "reason": "Synthetic rejection traceability case"
+    },
+    "concurrentArrival": {
+      "date": "2026-10-26",
+      "arrival": "08:00",
+      "requests": 2,
+      "expectedContract": "At most one open entry per person; characterize concurrent API behavior."
+    },
+    "brusselsAutumnOverlap": {
+      "date": "2026-10-25",
+      "arrival": "02:30",
+      "departure": "03:30",
+      "zone": "Europe/Brussels",
+      "expectedContract": "Characterization only: Ouvrane schema stores local date and HH:mm without offset/occurrence. No DST duration policy is inferred."
+    }
+  }
+}
