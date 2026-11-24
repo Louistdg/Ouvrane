@@ -96,6 +96,8 @@ await fs.copyFile('worker/personal-calendar.js','dist/server/personal-calendar.j
 await fs.copyFile('worker/personal-followup-policy.js','dist/server/personal-followup-policy.js');
 
 await fs.copyFile('worker/personal-followup.js','dist/server/personal-followup.js');
+await fs.copyFile('worker/user-preferences.js','dist/server/user-preferences.js');
+await fs.copyFile('worker/invoices.js','dist/server/invoices.js');
 
 await fs.copyFile('worker/purchase-receipts.js','dist/server/purchase-receipts.js');
 await fs.copyFile('worker/bank-connections.js','dist/server/bank-connections.js');

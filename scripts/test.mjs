@@ -13,6 +13,10 @@ const excluded=new Set(['browser-team-composer.mjs','browser-15.mjs','browser-id
 excluded.add('browser-alert-confirmation-01.mjs');
 // Starts real production child processes and requires the compiled worker: qualify separately after build.
 excluded.add('production-v5-start.mjs');
+// Service de prévisualisation : démarre un serveur, écrit READY.json et attend un fichier STOP.
+// Il ne se termine jamais seul et refuse de réutiliser un dossier de sortie. À lancer à la main,
+// avec OUVRANE_TOPO_PREVIEW pointant vers un dossier neuf.
+excluded.add('topo-preview.mjs');
 excluded.add('browser-offline-scope-v5.mjs');
 excluded.add('browser-contact-quote-history.mjs');
 excluded.add('browser-commercial-client-scope.mjs');

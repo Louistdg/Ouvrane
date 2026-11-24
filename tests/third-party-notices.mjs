@@ -67,6 +67,10 @@ try{
     readFile:async(path,encoding)=>{if(!memory.has(path))memory.set(path,Buffer.from('fixture source: '+path));const value=memory.get(path);return encoding?value.toString(encoding):value;},
     copyFile:async(source,target)=>memory.set(target,await io.readFile(source)),
     mkdir:async()=>{},rm:async()=>{},writeFile:async(path,body)=>memory.set(path,Buffer.from(body)),
+    // build.mjs inventorie dist/server pour décrire le runtime construit : le faux fs doit répondre.
+    readdir:async path=>[...new Set([...memory.keys()]
+      .filter(name=>name.startsWith(String(path).replace(/\/$/,'')+'/'))
+      .map(name=>name.slice(String(path).replace(/\/$/,'').length+1).split('/')[0]))],
   };
   const compiler={build:async()=>{},transform:async code=>({code})};
   let collected=0;

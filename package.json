@@ -28,8 +28,5 @@
     "tesseract.js": "^7.0.0",
     "tesseract.js-core": "7.0.0"
   },
-  "releaseName": "pub socle V3",
-  "allowScripts": {
-    "esbuild@0.28.2": true
-  }
+  "releaseName": "pub socle V3"
 }
