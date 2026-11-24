@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { networkInterfaces } from 'node:os';
@@ -23,13 +23,19 @@ const dataDirectory = dirname(databasePath);
 
 const startupAt=performance.now();
 const startupCheckpoint=label=>console.log('[local startup] '+label+' '+Math.round(performance.now()-startupAt)+'ms');
-startupCheckpoint('build start');
-const build = spawnSync(process.execPath, [join(root, 'scripts', 'build.mjs')], {
-  cwd: root,
-  stdio: 'inherit',
-});
-if (build.status !== 0) process.exit(build.status || 1);
-startupCheckpoint('build complete');
+const skipBuild=process.argv.includes('--skip-build');
+if(skipBuild){
+  if(!existsSync(join(root,'dist','server','index.js')))throw new Error('Build local absent : --skip-build est refusé.');
+  startupCheckpoint('build reused');
+}else{
+  startupCheckpoint('build start');
+  const build = spawnSync(process.execPath, [join(root, 'scripts', 'build.mjs')], {
+    cwd: root,
+    stdio: 'inherit',
+  });
+  if (build.status !== 0) process.exit(build.status || 1);
+  startupCheckpoint('build complete');
+}
 
 mkdirSync(dataDirectory, { recursive: true });
 const database = new DatabaseSync(databasePath);

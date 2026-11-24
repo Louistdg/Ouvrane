@@ -21,6 +21,69 @@ try{
  console.log('HOME_BLOCKS '+JSON.stringify(diagnostic));
  await waitFor(()=>run('document.querySelectorAll("#main [data-home-block] [data-home-drag]").length>=5','direct-handles'),'The existing home blocks offer direct drag handles without opening a customization mode',8000);
  await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.ready==="true"','ready'),'Direct dragging is ready after the preference is loaded');
+
+ // Mission 07: collect both original defects before reporting a regression failure.
+ const missionFailures=[];
+ const check=(value,message)=>{if(!value)missionFailures.push(message)};
+ const alertValue=()=>run('[...document.querySelectorAll(".home-kpi")].find(e=>e.querySelector("small")?.textContent==="Alertes")?.querySelector("strong")?.textContent','alert-value');
+ await waitFor(()=>run('iaAAttentionHomeReady()','feeds-ready'),'Owner feeds have finished loading');
+ await run('render()','settled-home');
+ await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.ready==="true"','settled-ready'),'Settled layout');
+ assert.equal(await run('document.body.dataset.v3Theme','default-theme'),'repere-cuivre');
+ const themes=['repere-eclipse','petrole','repere-cuivre','repere-lunaire'];
+ assert.deepEqual(await run('[...document.querySelectorAll(".v3-theme-choice")].map(e=>e.dataset.theme)','theme-choices'),themes);
+ for(const id of themes){await click('.v3-theme-button');await click('.v3-theme-choice[data-theme="'+id+'"]');assert.equal(await run('document.body.dataset.v3Theme','selected-theme'),id);await tab.reload();await waitForApp(tab);assert.equal(await run('document.body.dataset.v3Theme','persisted-theme'),id);}
+ await click('.v3-theme-button');await click('.v3-theme-choice[data-theme="repere-cuivre"]');
+ console.log('PASS four existing themes, Cuivre default and theme persistence');
+ await waitFor(()=>run('iaAAttentionHomeReady()&&document.querySelector("[data-home-layout]")?.dataset.ready==="true"','themes-home-ready'),'Home ready after theme reloads');
+ const initialAlert=Number(await alertValue());
+ await run('globalThis.__missionOrders=purchaseOrders.slice();purchaseOrders.push({id:"QA07-OVERDUE",number:"QA07-OVERDUE",status:"ordered",expectedDate:"2000-01-01",lines:[]});render()','add-overdue');
+ await waitFor(()=>run('document.querySelector(".ia-attention")?.textContent.includes("QA07-OVERDUE")','overdue-visible'),'Real owner attention list includes the overdue order');
+ await waitFor(()=>run('Boolean(document.querySelector(".home-kpis"))','kpis-mounted'),'KPI mounted');
+ check(Number(await alertValue())===initialAlert+1,'Alert counter increases by one for one overdue order');
+ await run('iaAAttentionSetFilter("reports")','filter-no-order');
+ await new Promise(r=>setTimeout(r,100));
+ check(Number(await alertValue())===initialAlert+1,'Alert count is independent of list filters and truncation');
+ await run('purchaseOrders.splice(0,purchaseOrders.length,...__missionOrders);iaAAttentionSetFilter("all");render()','restore-orders');
+ for(const phone of [false,true]){
+  touch=phone;
+  await tab.call('Emulation.setDeviceMetricsOverride',{width:phone?412:1440,height:1000,deviceScaleFactor:1,mobile:phone});
+  await tab.call('Emulation.setTouchEmulationEnabled',{enabled:phone});
+  await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.mobile==="'+phone+'"','mode-ready'),'Layout matches viewport');
+  // Delay a genuine local task response; the existing agenda completion calls render().
+  await run('(()=>{const original=serverJson;globalThis.__missionAgenda={original};serverJson=async function(url,options){const result=await original.apply(this,arguments);if(url==="/api/tasks")return new Promise(resolve=>{__missionAgenda.release=()=>resolve(result)});return result};iaARefreshOwnerAgenda()})()','hold-agenda');
+  await waitFor(()=>run('Boolean(__missionAgenda.release)&&document.querySelector("[data-home-layout]")?.dataset.ready==="true"','agenda-held'),'Real task response held with layout ready');
+  const prior=(await api('/api/me/preferences/dashboard/home-layout')).body.preference?.value??null;
+  const start=await point('[data-home-block="weather"] [data-home-drag]');
+  const target=await run(phone?'(()=>{const r=document.querySelector("[data-home-block=portals]").getBoundingClientRect();return{x:r.x+30,y:r.bottom-2}})()':'(()=>{const r=document.querySelector("[data-home-layout]").getBoundingClientRect();return{x:r.x+r.width*.75,y:r.y+18}})()','refresh-target');
+  await run('globalThis.__missionCard=document.querySelector("[data-home-block=weather]")','remember-card');
+  if(phone){await tab.call('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[start]});await tab.call('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[target]})}
+  else{await tab.call('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',clickCount:1,...start});await tab.call('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,...target})}
+  await waitFor(()=>run('Boolean(document.querySelector("[data-home-drop]"))','refresh-preview'),'Gesture has a destination before the response');
+  await run('__missionAgenda.release()','release-actual-agenda');
+  await waitFor(()=>run('iaAAttentionHomeReady()','agenda-completed'),'Existing agenda completion has requested its automatic render');
+  await new Promise(r=>setTimeout(r,150));
+  const held=await run('({same:__missionCard===document.querySelector("[data-home-block=weather]"),connected:__missionCard.isConnected,dragging:document.body.classList.contains("home-layout-dragging"),preview:!!document.querySelector("[data-home-drop]")})','gesture-after-response');
+  await run('render();render()','coalesced-explicit-refresh');
+  check(await run('__missionCard.isConnected&&!!document.querySelector("[data-home-drop]")','explicit-still-held'),'Explicit refreshes preserve the same held card');
+  check(held.same&&held.connected&&held.dragging&&held.preview,'Automatic agenda refresh preserves the held card and gesture '+(phone?'mobile':'PC'));
+  if(phone)await tab.call('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  else await tab.call('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,...target});
+  await run('serverJson=__missionAgenda.original','restore-agenda-transport');
+  if(held.dragging){await saved();await waitFor(()=>run('!__missionCard.isConnected&&!document.body.classList.contains("home-layout-dragging")','deferred-refresh-applied'),'Deferred home refresh is applied after release');}
+  const after=(await api('/api/me/preferences/dashboard/home-layout')).body.preference?.value??null;
+  check(JSON.stringify(after)!==JSON.stringify(prior),'Completed gesture saves a new arrangement '+(phone?'mobile':'PC'));
+  if(phone)check(after?.mobileOrder.indexOf('weather')>after?.mobileOrder.indexOf('portals'),'Touch destination determines saved order');
+  else check(after?.positions.weather.column===1,'PC destination determines saved column');
+  await tab.reload();await waitForApp(tab);
+  await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.ready==="true"','mission-reload-ready'),'Reload restores arrangement');
+  assert.deepEqual((await api('/api/me/preferences/dashboard/home-layout')).body.preference?.value??null,after,'Latest acknowledged arrangement survives reload');
+  console.log('MISSION07_REFRESH '+JSON.stringify({device:phone?'mobile-412':'PC-1440',held,changed:JSON.stringify(after)!==JSON.stringify(prior),persistedAcrossReload:true}));
+ }
+ touch=false;await tab.call('Emulation.setTouchEmulationEnabled',{enabled:false});await tab.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+ if(missionFailures.length)throw Error('MISSION07_REGRESSIONS: '+missionFailures.join('; '));
+ console.log('PASS MISSION07 alert counter and automatic refresh during PC/mobile gestures');
+
  const before=(await api('/api/state')).body;
  assert.equal(await run('Boolean(document.querySelector("#modal[open]"))','no-mode'),false);
  const p=await point('[data-home-block="weather"] [data-home-drag]');
@@ -38,7 +101,7 @@ try{
  assert.equal(preference.value.positions.weather.span,2,'An inline block control expands to both columns');
  await tab.reload();await waitForApp(tab);
  await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.ready==="true"','reload-ready'),'A reload retrieves the saved arrangement');
- assert.equal(await run('document.querySelector("[data-home-block=weather]").getBoundingClientRect().width>document.querySelector("[data-home-layout]").getBoundingClientRect().width*.9','reloaded-width'),true);
+ await waitFor(()=>run('iaAAttentionHomeReady()&&document.querySelector("[data-home-block=weather]")?.getBoundingClientRect().width>document.querySelector("[data-home-layout]")?.getBoundingClientRect().width*.9','reloaded-width'),'Saved width remains after asynchronous home feeds settle');
  console.log('PASS saved block width and position survive a real reload');
  await capture('saved-1440');
  assert.deepEqual((await api('/api/state')).body.state,before.state,'Layout changes preserve the entire business workspace');
@@ -91,6 +154,7 @@ try{
  assert.equal((await api('/api/me/preferences/dashboard/home-layout')).body.preference,null);
  assert.equal(await run('(()=>{const e=new Event("beforeunload",{cancelable:true});window.dispatchEvent(e);return e.defaultPrevented})()','worker-has-no-owner-pending-state'),false,'An old owner save does not leave a pending-layout guard in the worker account');
  await run('serverJson=__homeHeld.original','restore-held-save-transport');
+ assert.equal(Number(await alertValue()),0,'Worker does not inherit owner alerts');
  console.log('PASS a delayed owner save cannot inject layout, success or pending state into the worker account');
  assert.equal((await api('/__local-test/login','POST',{email:'direction@batinova.example'})).status,204);await run('loadWorkspace().then(()=>navigate("home"))','restore-owner');await waitForApp(tab,before.access.userId);
  await waitFor(()=>run('document.querySelector("[data-home-layout]")?.dataset.ready==="true"','owner-ready-again'),'The owner retrieves their layout after the worker session');

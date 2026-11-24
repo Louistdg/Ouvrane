@@ -2,10 +2,11 @@
 <html lang="fr">
 <head>
   <meta charset="utf-8">
+  <script>(function(){var ids=["repere-eclipse","petrole","repere-cuivre","repere-lunaire","repere-amethyste","repere-opaline"],id="petrole";try{var saved=localStorage.getItem("socle-v3.theme");if(localStorage.getItem("socle-v3.theme-choice")==="explicit"&&ids.includes(saved))id=saved}catch{}window.socleInitialTheme=id;if(!document.documentElement.className)document.documentElement.style.backgroundColor={"repere-eclipse":"#10283B","petrole":"#0e1b1d","repere-cuivre":"#24303A","repere-lunaire":"#DCE4E7","repere-amethyste":"#25202E","repere-opaline":"#F1EBDF"}[id];document.documentElement.dataset.v3Theme=id;document.documentElement.className="theme-"+id.replace("repere-","");})();</script><style>html[data-v3-theme] body.socle-v3:not([data-theme-ready]){visibility:hidden;background:none!important}</style>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OUVRANE — Votre entreprise en mouvement</title>
   <meta name="description" content="Votre entreprise, ses dossiers et ses échéances dans un même espace.">
-  <meta name="theme-color" content="#0e1b1d">
+  <meta name="theme-color" content="#102123">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="OUVRANE">
@@ -32,9 +33,12 @@
   <link rel="stylesheet" href="audit-release.css"><link rel="stylesheet" href="mobile-audit.css"><link rel="stylesheet" href="design-system.css">
 <link rel="stylesheet" href="team-composer.css">
 <link rel="stylesheet" href="v4.css">
-<link rel="stylesheet" href="tabulator.css"><link rel="stylesheet" href="measurement-desk.css"><link rel="stylesheet" href="plans.css"><link rel="stylesheet" href="work-packets.css"><link rel="stylesheet" href="task-preparations.css"><link rel="stylesheet" href="task-stock.css"><link rel="stylesheet" href="assignment-assets.css"><link rel="stylesheet" href="commercial-directory.css"><link rel="stylesheet" href="home-layout.css"></head>
+<link rel="stylesheet" href="tabulator.css"><link rel="stylesheet" href="measurement-desk.css"><link rel="stylesheet" href="plans.css"><link rel="stylesheet" href="work-packets.css"><link rel="stylesheet" href="task-preparations.css"><link rel="stylesheet" href="task-stock.css"><link rel="stylesheet" href="assignment-assets.css"><link rel="stylesheet" href="commercial-directory.css"><link rel="stylesheet" href="home-layout.css"><link rel="stylesheet" href="ouvrane-repere.css">
+<link rel="stylesheet" href="personal-followup.css">
+<link rel="stylesheet" href="project-models.css">
+</head>
 <body class="socle-v3 socle-loading" data-socle-theme="moss" data-v3-theme="petrole" data-mobile-layout="standard">
-<script>try{var socleInitialTheme=localStorage.getItem("socle-v3.theme");if(["atelier","ardoise","terre","nuit","graphite","carmin","contraste","beton","lin","ciel","foret","bordeaux","cuivre","encre","craie","comete","petrole","petrole-signature","charbon-ivoire","gris-relief"].includes(socleInitialTheme)&&localStorage.getItem("socle-v3.theme-choice")==="explicit")document.body.dataset.v3Theme=socleInitialTheme;}catch{}</script>
+<script>document.body.dataset.v3Theme=window.socleInitialTheme||"petrole";document.body.dataset.themeReady="true";</script>
   <header class="topbar"><a class="brand" href="#" onclick="navigate('home');return false"><span class="brandmark">o</span>ouvrane<span class="branddot">.</span></a><span class="workspace"><select id="organizationSwitcher" aria-label="Entreprise active" onchange="selectSocleOrganization(this.value)" hidden></select><span id="organizationLabel">Chargement…</span><small id="organizationSwitcherStatus" role="status" aria-live="polite" hidden></small><small>ESPACE ENTREPRISE</small></span><div class="global-search"><label class="sr-only" for="globalSearch">Rechercher partout</label><input id="globalSearch" type="search" placeholder="Rechercher partout…" autocomplete="off" oninput="searchEverywhere(this.value)" onfocus="searchEverywhere(this.value)"><kbd class="sx-search-kbd">Ctrl K</kbd></div><button type="button" class="socle-mobile-search-toggle" aria-label="Rechercher partout">⌕</button><button class="quick-create" onclick="quickCreateMenu()" aria-label="Créer rapidement"><span aria-hidden="true">+</span><span class="quick-create-label">Créer</span></button><div class="header-right"><span class="demo">Espace de travail · exemples fictifs</span><div class="socle-theme-picker"><button id="socleThemeButton" class="theme-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="socleThemeMenu" title="Changer les couleurs">Thème</button><div id="socleThemeMenu" class="theme-menu" role="menu" hidden></div></div><span class="avatar">LM</span></div></header>
   <nav id="nav" class="topnav" aria-label="Espace entreprise"></nav>
   <div id="saveStatus" role="status" aria-live="polite">Chargement de votre entreprise…</div>
@@ -60,5 +64,8 @@
   <script defer src="/omnisearch.js"></script>
 <script defer src="team-composer.js"></script>
 <script defer src="v4.js"></script>
-<script src="tabulator.js" defer></script><script src="measurement-desk.js" defer></script><script src="measurement-procurement.js" defer></script><script src="supplier-imports.js" defer></script><script src="plan-geometry.js" defer></script><script src="plans.js" defer></script><script src="work-packets.js" defer></script><script src="task-preparations.js" defer></script><script src="measurement-tasks.js" defer></script><script src="task-stock.js" defer></script><script src="assignment-assets.js" defer></script><script src="commercial-directory.js" defer></script><script src="home-layout.js" defer></script></body>
+<script src="lazy-tools.js" defer></script><script src="measurement-desk.js" defer></script><script src="measurement-procurement.js" defer></script><script src="supplier-imports.js" defer></script><script src="plan-geometry.js" defer></script><script src="plans.js" defer></script><script src="work-packets.js" defer></script><script src="task-preparations.js" defer></script><script src="measurement-tasks.js" defer></script><script src="task-stock.js" defer></script><script src="assignment-assets.js" defer></script><script src="commercial-directory.js" defer></script><script src="home-layout.js" defer></script><script src="sidebar-position.js" defer></script><script defer src="personal-time.js"></script><script defer src="personal-followup-ui.js"></script><script defer src="personal-followup-forms.js"></script>
+<script src="bank-connect.js" defer></script>
+<script src="project-models.js" defer></script>
+</body>
 </html>

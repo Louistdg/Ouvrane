@@ -11,6 +11,10 @@ const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const candidatePath=join(root,'data','socle.sqlite');
 const artifactsPath=join(root,'tests','artifacts','browser-gate');
 const browserSuites=[
+ {name:'browser-commercial-pagination.mjs'},
+ {name:'browser-sidebar-scroll.mjs'},
+ {name:'browser-ouvrane-themes.mjs'},
+ {name:'browser-job-safety-21.mjs'},
  {name:'browser-job-create-retry.mjs'},
  {name:'browser-job-customer-choice.mjs'},
  {name:'browser-job-finance-preservation.mjs'},
@@ -35,6 +39,8 @@ const browserSuites=[
  {name:'browser-plan-links.mjs'},
  {name:'browser-supplier-imports.mjs'},
  {name:'browser-measurement-purchases.mjs'},
+ {name:'browser-supplier-payments.mjs'},
+ {name:'browser-quote-invoice-concurrency.mjs'},
  {name:'browser-measurement-links.mjs'},
   {name:'browser-team-composer.mjs'},
   {name:'browser-access-preview-theme-contrast-01.mjs'},
@@ -75,16 +81,17 @@ const interrupt=signal=>interruption.abort(new Error('Browser Gate interrompu : 
 const onSigint=()=>interrupt('SIGINT'),onSigterm=()=>interrupt('SIGTERM');
 
 function options(){
-  const values={runs:'3',port:'4386','cdp-port':'9222',chrome:process.env.SOCLE_CHROME||'',only:''};
+  const values={runs:'3',port:'4386','cdp-port':'9222',chrome:process.env.SOCLE_CHROME||'',only:'','reuse-build':false};
   for(const argument of process.argv.slice(2)){
     if(argument==='--help'){
-      console.log('Usage: node scripts/browser-gate.mjs [--runs=3] [--port=4386] [--cdp-port=9222] [--chrome=executable] [--only=browser-suite-name.mjs] [--list]');
+      console.log('Usage: node scripts/browser-gate.mjs [--runs=3] [--port=4386] [--cdp-port=9222] [--chrome=executable] [--only=browser-suite-name.mjs] [--reuse-build] [--list]');
       return null;
     }
     if(argument==='--list'){
       for(const suite of browserSuites)console.log(suite.name);
       return null;
     }
+    if(argument==='--reuse-build'){values['reuse-build']=true;continue;}
     const match=/^--(runs|port|cdp-port|chrome|only)=(.+)$/.exec(argument);
     if(!match)throw new Error('Option Browser Gate inconnue ou vide : '+argument);
     values[match[1]]=match[2];
@@ -287,7 +294,8 @@ async function run(index,configuration,chrome,originalHash){
     await copyFile(candidatePath,copyPath);
     const copyHash=createHash('sha256').update(await readFile(copyPath)).digest('hex');
     if(copyHash!==originalHash)throw new Error('La copie jetable diffère de la candidate avant le passage '+index+'.');
-    const server=startLogged(process.execPath,[join(root,'scripts','local.mjs'),'--port='+configuration.port,'--db-path='+copyPath],join(artifactsPath,'serveur-'+index+'.log'));
+    const serverArgs=[join(root,'scripts','local.mjs'),'--port='+configuration.port,'--db-path='+copyPath,...(configuration['reuse-build']?['--skip-build']:[])];
+    const server=startLogged(process.execPath,serverArgs,join(artifactsPath,'serveur-'+index+'.log'));
     children.push(server);
     await waitForHttp(baseUrl+'/',server,'OUVRANE local',300000);
     checkInterrupted();

@@ -1,7 +1,21 @@
 # OUVRANE — proxy vers l'application Node.js (127.0.0.1:3100)
 # Ancien redirect 302 temporaire sauvegarde dans .htaccess.bak-302
 # DirectoryIndex pour que "/" arrive en "/index.html" (et non "/index.php")
+#
+# Defense en profondeur : le code applicatif vit SOUS la racine web (~/ouvrane.be/app)
+# et non hors d'elle. On refuse donc l'acces direct a /app/ (code + .env avec
+# SOCLE_SESSION_SECRET), a /data/ et aux dotfiles, avant toute regle de proxy.
+<LocationMatch "^/(?:app|data)(?:/|$)">
+  Require all denied
+</LocationMatch>
+<LocationMatch "^/\.(?!well-known(?:/|$))">
+  Require all denied
+</LocationMatch>
 DirectoryIndex index.html
 RewriteEngine On
+# Les memes URI ne doivent pas atteindre le backend : reponse 403 locale.
+RewriteCond %{REQUEST_URI} ^/(?:app|data)(?:/|$) [OR]
+RewriteCond %{REQUEST_URI} ^/\.(?!well-known(?:/|$))
+RewriteRule ^ - [F]
 RewriteCond %{REQUEST_URI} !^/\.well-known(?:/|$) [NC]
 RewriteRule ^(.*)$ http://127.0.0.1:3100/$1 [P,L]

@@ -1,13 +1,40 @@
 // One source directory and a separate display projection for independent
 // canonical customers. Never serialize that projection into contacts.
 let commercialDirectoryState={status:'idle',key:'',initialized:false,links:[],suppliers:[],archivedCustomers:[],error:'',promise:null};
+const commercialPageSize=50;
+const commercialEmptyPages=()=>({customers:{cursors:[null],index:0},suppliers:{cursors:[null],index:0}});
+let commercialPages=commercialEmptyPages(),commercialLocalPage=0,commercialSearchTimer=0;
+function commercialDirectoryFilter(kind,value){
+ if(kind==='query')contactQuery=String(value).slice(0,120);
+ if(kind==='status')commercialContactStatus=value;
+ if(kind==='role')contactRole=value;
+ commercialPages=commercialEmptyPages();commercialLocalPage=0;
+ // Replace immediately so an older response cannot win during the debounce.
+ commercialDirectoryState={status:'idle',key:'',initialized:false,links:[],suppliers:[],customers:[],archivedCustomers:[],error:'',promise:null};
+ clearTimeout(commercialSearchTimer);
+ if(kind==='query')commercialSearchTimer=setTimeout(()=>commercialLoadDirectory(),200);
+ else{commercialLoadDirectory();render();}
+}
+function commercialDirectoryTurn(kind,delta){
+ if(commercialDirectoryState.status==='loading')return;
+ if(kind==='local'){commercialLocalPage=Math.max(0,commercialLocalPage+delta);render();return;}
+ const page=commercialPages[kind];if(!page)return;
+ if(delta<0&&page.index>0)page.index--;
+ else if(delta>0&&commercialDirectoryState[kind+'Next']){page.cursors.length=page.index+1;page.cursors.push(commercialDirectoryState[kind+'Next']);page.index++;}
+ else return;
+ commercialDirectoryState={...commercialDirectoryState,status:'idle'};commercialLoadDirectory();render();
+}
+function commercialDirectoryPager(kind,label,hasNext,index){
+ const busy=commercialDirectoryState.status==='loading';
+ return '<div class="modal-actions" data-directory-pager="'+kind+'"><strong>'+label+' · page '+(index+1)+'</strong><button type="button" class="btn" data-directory-prev '+(busy||index===0?'disabled':'')+' onclick="commercialDirectoryTurn(\''+kind+'\',-1)">Précédents</button><button type="button" class="btn" data-directory-next '+(busy||!hasNext?'disabled':'')+' onclick="commercialDirectoryTurn(\''+kind+'\',1)">Suivants</button></div>';
+}
 let commercialWriteDepth=0;
 let commercialIndependentContact=null;
 const commercialIndependentStatusOperations=new Map();
 function commercialHas(permission){const access=globalThis.socleCurrentAccess;return Boolean(access&&(access.owner||access.permissions?.includes(permission)))}
 function commercialCanWrite(permission){return !globalThis.socleAccessPreview&&commercialHas(permission)}
 function commercialCurrent(key){return key===e2e02CustomerContext()}
-function commercialResetDirectory(){commercialDirectoryState={status:'idle',key:'',initialized:false,links:[],suppliers:[],archivedCustomers:[],error:'',promise:null};e2e02InvalidateCustomers()}
+function commercialResetDirectory(){clearTimeout(commercialSearchTimer);commercialPages=commercialEmptyPages();commercialLocalPage=0;commercialDirectoryState={status:'idle',key:'',initialized:false,links:[],suppliers:[],archivedCustomers:[],error:'',promise:null};e2e02InvalidateCustomers()}
 const commercialRestoreBase=restoreWorkspace;
 restoreWorkspace=function(state){if(document.querySelector('#modal[open]'))closeModal();commercialIndependentContact=null;commercialIndependentStatusOperations.clear();commercialResetDirectory();commercialRestoreBase(state);if(company.blankWorkspace)ensureBlankRecords()};
 const commercialScheduleBase=scheduleSave;
@@ -34,11 +61,17 @@ async function commercialLoadDirectory({force=false}={}){
   if(commercialDirectoryState.key===key&&commercialDirectoryState.status==='loading')return commercialDirectoryState.promise;
   if(force)e2e02InvalidateCustomers();
   const state={status:'loading',key,initialized:false,links:[],suppliers:[],archivedCustomers:[],error:'',promise:null};commercialDirectoryState=state;
-  state.promise=Promise.all([serverJson('/api/commercial-directory'),e2e02EnsureCustomers(),commercialHas('expenses.view')?serverJson('/api/suppliers?limit=250'):Promise.resolve({suppliers:[]}),serverJson('/api/customers?status=archived&limit=250')]).then(([directory,,suppliers,archived])=>{
+  const query=String(contactQuery||'').trim().slice(0,120),filter=commercialContactStatus==='inactive'?'archived':commercialContactStatus;
+  const params=kind=>{const p=new URLSearchParams({limit:String(commercialPageSize),q:query});const page=commercialPages[kind];if(page.cursors[page.index])p.set('cursor',page.cursors[page.index]);if(kind==='customers'){p.set('status',filter);p.set('independent','1');}return p;};
+  state.promise=Promise.all([serverJson('/api/commercial-directory'),e2e02EnsureCustomers(),commercialHas('expenses.view')&&commercialContactStatus!=='inactive'?serverJson('/api/suppliers?'+params('suppliers')):Promise.resolve({suppliers:[],nextCursor:null}),serverJson('/api/customers?'+params('customers'))]).then(([directory,,suppliers,customers])=>{
     if(!commercialCurrent(key)||commercialDirectoryState!==state)return false;
-    state.initialized=Boolean(directory.initialized);state.links=Array.isArray(directory.links)?directory.links:[];state.suppliers=Array.isArray(suppliers.suppliers)?suppliers.suppliers:[];state.archivedCustomers=Array.isArray(archived.customers)?archived.customers:[];state.status='ready';return true;
+    state.initialized=Boolean(directory.initialized);state.links=Array.isArray(directory.links)?directory.links:[];state.suppliers=suppliers.suppliers||[];state.customers=customers.customers||[];state.archivedCustomers=state.customers.filter(c=>c.archivedAt);state.customersNext=customers.nextCursor||null;state.suppliersNext=suppliers.nextCursor||null;state.status='ready';return true;
   }).catch(error=>{if(commercialCurrent(key)&&commercialDirectoryState===state){state.status='error';state.error=error.message||'Annuaire indisponible.'}return false}).finally(()=>{
-    if(commercialDirectoryState===state&&['contacts','contact'].includes(view))render();
+    if(commercialDirectoryState===state&&['contacts','contact'].includes(view)){
+      const focused=document.activeElement?.matches('#main .catalogue-tools input[type=search]'),position=focused?document.activeElement.selectionStart:null;
+      render();
+      if(focused){const input=document.querySelector('#main .catalogue-tools input[type=search]');input?.focus();if(position!==null)try{input.setSelectionRange(position,position)}catch{}}
+    }
   });
   return state.promise;
 }
@@ -81,26 +114,30 @@ let commercialContactStatus='active';
 function commercialContactIsActive(contact){return contact.active!==false&&contact.active!==0&&!['inactive','archived','deleted'].includes(String(contact.status||'').toLowerCase())}
 function commercialContactProjection(){
   const sourceIds=new Set(contacts.map(contact=>String(contact.id)));
-  const canonical=[...new Map([...iaCCustomers,...(commercialCurrent(commercialDirectoryState.key)?commercialDirectoryState.archivedCustomers:[])].map(customer=>[String(customer.id),customer])).values()];
+  const canonical=commercialCurrent(commercialDirectoryState.key)?commercialDirectoryState.customers||[]:[];
   const independent=commercialHas('customers.view')?canonical.filter(customer=>!customer.sourceContactId||!sourceIds.has(String(customer.sourceContactId))).map(customer=>({id:'canonical:'+customer.id,name:e2e02CustomerLabel(customer),company:customer.companyName,roles:['Client'],email:customer.email,phone:customer.phone,active:!customer.archivedAt,_canonicalCustomer:customer})):[];
   const suppliers=commercialHas('expenses.view')&&commercialCurrent(commercialDirectoryState.key)?commercialDirectoryState.suppliers.map(supplier=>({id:'supplier:'+supplier.id,name:supplier.name,roles:['Fournisseur'],email:supplier.email,phone:supplier.phone,vatNumber:supplier.vatNumber,active:!supplier.archivedAt,_canonicalSupplier:supplier})):[];
   return [...contacts,...independent,...suppliers];
 }
 contactsView=function(){
   const notice=commercialDirectoryNotice(),query=String(contactQuery||'').trim().toLowerCase(),all=commercialContactProjection();
-  const filtered=all.filter(c=>(contactRole==='Tous'||(c.roles||[]).includes(contactRole))&&(commercialContactStatus==='all'||commercialContactIsActive(c)===(commercialContactStatus==='active'))&&[c.name,c.company,c.phone,c.email,c.reference,c.vatNumber,...(c.roles||[])].join(' ').toLowerCase().includes(query)).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'}));
-  const visible=filtered.slice(0,iaCContactVisibleCount),remaining=filtered.length-visible.length;
+  const filtered=all.filter(c=>(contactRole==='Tous'||(c.roles||[]).includes(contactRole))&&(commercialContactStatus==='all'||commercialContactIsActive(c)===(commercialContactStatus==='active'))&&(c._canonicalCustomer||c._canonicalSupplier||[c.name,c.company,c.phone,c.email,c.reference,c.vatNumber,...(c.roles||[])].join(' ').toLowerCase().includes(query))).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'}));
+  const local=filtered.filter(c=>!c._canonicalCustomer&&!c._canonicalSupplier),remote=filtered.filter(c=>c._canonicalCustomer||c._canonicalSupplier);
+  commercialLocalPage=Math.min(commercialLocalPage,Math.max(0,Math.ceil(local.length/commercialPageSize)-1));
+  const visible=[...local.slice(commercialLocalPage*commercialPageSize,(commercialLocalPage+1)*commercialPageSize),...remote].sort((a,b)=>String(a.name||'').localeCompare(String(b.name||''),'fr',{sensitivity:'base'})||String(a.id).localeCompare(String(b.id)));
   const roleChoices=[...new Set(['Tous','Client','Prospect',...roles,...contacts.flatMap(c=>c.roles||[])])];
   return heading('Contacts','Clients, architectes, fournisseurs et sous-traitants.',false)+notice+
-    '<div class="catalogue-tools"><input placeholder="Rechercher un contact…" value="'+esc(contactQuery)+'" oninput="contactQuery=this.value;iaCContactVisibleCount=5;render()">'+
-    '<select aria-label="État des fiches" onchange="commercialContactStatus=this.value;iaCContactVisibleCount=5;render()">'+[['active','Fiches actives'],['inactive','Fiches inactives'],['all','Toutes les fiches']].map(([value,label])=>'<option value="'+value+'" '+(commercialContactStatus===value?'selected':'')+'>'+label+'</option>').join('')+'</select>'+
+    '<div class="catalogue-tools"><input type="search" maxlength="120" placeholder="Rechercher un contact…" value="'+esc(contactQuery)+'" oninput="commercialDirectoryFilter(\'query\',this.value)">'+
+    '<select aria-label="État des fiches" onchange="commercialDirectoryFilter(\'status\',this.value)">'+[['active','Fiches actives'],['inactive','Fiches inactives'],['all','Toutes les fiches']].map(([value,label])=>'<option value="'+value+'" '+(commercialContactStatus===value?'selected':'')+'>'+label+'</option>').join('')+'</select>'+
     (globalThis.socleCurrentAccess?.owner&&!globalThis.socleAccessPreview?'<label class="btn upload">Importer CSV<input type="file" accept=".csv,text/csv" onchange="importContactsCsv(event)"></label>':'')+
     (commercialCanWrite('customers.create')?'<button class="btn primary" type="button" onclick="contactForm()">+ Nouveau contact</button>':'')+'</div>'+
-    '<div class="filter-pills">'+roleChoices.map(role=>'<button class="'+(contactRole===role?'selected':'')+'" onclick="contactRole=\''+jsString(role)+'\';iaCContactVisibleCount=5;render()">'+esc(role)+'</button>').join('')+'</div>'+
-    '<section class="panel"><div class="panel-head"><h2>'+filtered.length+' contact(s)</h2><span class="subtle">A→Z · recherche · fiche détaillée</span></div>'+
+    '<div class="filter-pills">'+roleChoices.map(role=>'<button class="'+(contactRole===role?'selected':'')+'" onclick="commercialDirectoryFilter(\'role\',\''+jsString(role)+'\')">'+esc(role)+'</button>').join('')+'</div>'+
+    '<section class="panel"><div class="panel-head"><h2>'+visible.length+' fiche(s) affichée(s)</h2><span class="subtle">A→Z · recherche · fiche détaillée</span></div>'+
     visible.map(c=>'<button class="task" data-contact-id="'+esc(c.id)+'" onclick="openContact(\''+jsString(String(c.id))+'\')"><span class="task-text"><strong>'+esc(c.name)+'</strong><small>'+esc(c.company||(c.roles||[]).join(' · '))+' · '+esc(c.phone||c.email||'Coordonnées à renseigner')+'</small></span><span class="badge">'+esc(!commercialContactIsActive(c)?'Inactive':(c.roles||[]).join(' · '))+'</span></button>').join('')+
     (!visible.length?'<div class="empty">Aucune fiche ne correspond à la recherche.</div>':'')+
-    (remaining?'<div class="ia-c-list-more"><button class="btn" onclick="iaCContactVisibleCount='+all.length+';render()">Afficher les '+remaining+' autres</button></div>':'')+'</section>';
+    commercialDirectoryPager('local','Contacts',local.length>(commercialLocalPage+1)*commercialPageSize,commercialLocalPage)+
+    ((contactRole==='Tous'||contactRole==='Client')?commercialDirectoryPager('customers','Clients sans fiche contact',Boolean(commercialDirectoryState.customersNext),commercialPages.customers.index):'')+
+    (commercialHas('expenses.view')&&(contactRole==='Tous'||contactRole==='Fournisseur')&&commercialContactStatus!=='inactive'?commercialDirectoryPager('suppliers','Fournisseurs',Boolean(commercialDirectoryState.suppliersNext),commercialPages.suppliers.index):'')+'</section>';
 };
 const commercialOpenContactBase=openContact;
 openContact=function(id){
@@ -172,8 +209,8 @@ contactDetail=function(){
     if((action.startsWith('contactForm(')&&!commercialCanWrite('customers.edit'))||(action.startsWith('mergeContactForm(')&&(!globalThis.socleCurrentAccess?.owner||globalThis.socleAccessPreview)))button.remove();
     else if(action.startsWith('contactForm(')){button.removeAttribute('onclick');button.type='button';button.dataset.commercialContactEdit=String(contact.id)}
   }
-  const customerId=commercialCustomerIdForContact(contact),customer=iaCCustomers.find(item=>String(item.id)===customerId);
-  if(customer&&commercialContactIsActive(contact)&&(contact.roles||[]).includes('Client')&&commercialCanWrite('quotes.create')){
+  const customerId=commercialCustomerIdForContact(contact);
+  if(customerId&&commercialContactIsActive(contact)&&(contact.roles||[]).includes('Client')&&commercialCanWrite('quotes.create')){
     const button=document.createElement('button');button.type='button';button.className='btn primary';button.dataset.contactCreateQuote='';button.textContent='Créer un devis';button.setAttribute('onclick',"quoteFormForCustomer('"+jsString(customerId)+"')");host.querySelector('.contact-actions')?.prepend(button);
   }
   return notice+host.innerHTML;
@@ -249,14 +286,16 @@ quoteForm=async function(id='',draftId='',preferredCustomerId=''){
       try{
         await e2e02EnsureCustomers();if(!sameActor())return;if(!commercialCurrent(key))continue;
         const quote=quotes.find(item=>String(item.id)===String(id));
-        if(quote?.customerId&&!iaCCustomers.some(c=>String(c.id)===String(quote.customerId))){
-          const data=await serverJson('/api/customers/'+encodeURIComponent(quote.customerId)+'?includeArchived=1');if(!sameActor())return;if(!commercialCurrent(key))continue;if(data.customer)iaCCustomers.push(data.customer);
+        const draft=typeof quoteDrafts!=='undefined'?quoteDrafts.find(d=>String(d.id)===String(draftId)):null;
+        const selectedId=String((!id?e2e02PendingQuoteCreate()?.payload?.customerId:'')||preferredCustomerId||draft?.customerId||quote?.customerId||'');
+        if(selectedId&&!iaCCustomers.some(c=>String(c.id)===selectedId)){
+          const data=await serverJson('/api/customers/'+encodeURIComponent(selectedId)+'?includeArchived=1');if(!sameActor())return;if(!commercialCurrent(key))continue;if(data.customer){iaCCustomers=iaCCustomers.slice(0,50);iaCCustomers.push(data.customer);}
         }
         if(!sameActor()||!canModuleAction('quotes',id?'edit':'add'))return;
         modal(id?'Modifier le devis':'Créer un devis',e2e02QuoteFormMarkup(id,draftId,preferredCustomerId));
         const form=document.querySelector('#modalbody form');
         if(form&&draftId){const input=document.createElement('input');input.type='hidden';input.name='sourceDraftId';input.value=String(draftId);form.append(input)}
-        e2e02PrepareQuoteForm(form);
+        e2e02MountCustomerPicker(form);e2e02PrepareQuoteForm(form);
         return;
       }catch(error){if(error.staleContext&&sameActor())continue;throw error}
     }
@@ -302,54 +341,172 @@ async function commercialSetIndependentStatus(customerId){
 }
 
 const commercialOriginalJobForm=jobForm;
+const commercialJobWrites=new Map();
+function commercialJobStorageKey(id){return 'ouvrane:job-save:'+iaCQuoteScope()+':'+String(id||'new')}
+function commercialPendingJob(key){
+  if(commercialJobWrites.has(key))return commercialJobWrites.get(key);
+  let raw;try{raw=sessionStorage.getItem(key)}catch{throw Error('Le navigateur ne permet pas de conserver la demande de chantier. Réactivez le stockage de cet onglet.')}
+  if(!raw)return null;
+  let pending;try{pending=JSON.parse(raw)}catch{throw Error('La demande conservée est illisible. Vérifiez vos chantiers avant une nouvelle création.')}
+  if(pending?.version!==1||!pending.job||!String(pending.job.id||'')||!Number.isSafeInteger(pending.revision))throw Error('La demande conservée est invalide. Vérifiez vos chantiers avant une nouvelle création.');
+  return pending;
+}
+function commercialKeepJob(key,pending){
+  try{sessionStorage.setItem(key,JSON.stringify({version:1,job:pending.job,revision:pending.revision,attempted:pending.attempted,acknowledged:pending.acknowledged}))}
+  catch{throw Error(pending.attempted?'Impossible de conserver la vérification dans cet onglet. Vérifiez le chantier avant une nouvelle demande.':'Demande non envoyée : impossible de conserver sa reprise dans cet onglet.')}
+}
+function commercialJobMatches(left,right){
+  const ordered=value=>Array.isArray(value)?value.map(ordered):value&&typeof value==='object'?Object.fromEntries(Object.keys(value).sort().map(key=>[key,ordered(value[key])])):value;
+  return JSON.stringify(ordered(left))===JSON.stringify(ordered(right));
+}
+function commercialJobTarget(key){
+  const form=document.querySelector('#modal[open] form[data-commercial-job]');
+  return form?._jobContext?.key===key?form:null;
+}
+function commercialProtectUncertain(form){
+  const locked=Boolean(form._jobBusy||form._jobPending);
+  if(locked){
+    form.dataset.sxServerPending='true';
+    form._jobFieldLocks??=new Map();
+    form.querySelectorAll('input,select,textarea').forEach(field=>{
+      if(!form._jobFieldLocks.has(field))form._jobFieldLocks.set(field,{disabled:field.disabled,readOnly:field.readOnly});
+      if(field.tagName==='SELECT'||['checkbox','radio'].includes(field.type))field.disabled=true;
+      else field.readOnly=true;
+    });
+  }else{
+    delete form.dataset.sxServerPending;
+    form._jobFieldLocks?.forEach((original,field)=>{field.disabled=original.disabled;if(original.readOnly!==undefined)field.readOnly=original.readOnly});
+    form._jobFieldLocks=null;
+  }
+  const notice=form.querySelector('[data-job-pending]');if(notice)notice.hidden=!locked;
+  const button=form.querySelector('.modal-actions button.primary');
+  if(button){button.textContent=form._jobPending?'Vérifier l’enregistrement':'Enregistrer le chantier';button.disabled=Boolean(form._jobBusy||commercialJobWrites.has(form._jobContext.key))}
+}
 jobForm=async function(id=0){
   if(!globalThis.socleCurrentAccess?.owner||globalThis.socleAccessPreview)return denyAccess('La modification globale des chantiers est réservée au responsable.');
   const scope=iaCQuoteScope(),generation=iaCQuoteWorkspaceGeneration,current=()=>scope===iaCQuoteScope()&&generation===iaCQuoteWorkspaceGeneration;
   try{
+    const key=commercialJobStorageKey(id),pending=commercialPendingJob(key);
     await commercialFlushWorkspace();await commercialLoadDirectory({force:true});if(!current())return;
     if(commercialDirectoryState.status!=='ready')throw Error(commercialDirectoryState.error||'Clients indisponibles.');
-    const job=jobs.find(item=>String(item.id)===String(id)),selected=String(job?.customerId||commercialDirectoryState.links.find(link=>String(link.contactId)===String(job?.clientId))?.customerId||'');
-    if(selected&&!iaCCustomers.some(c=>String(c.id)===selected)){const data=await serverJson('/api/customers/'+encodeURIComponent(selected)+'?includeArchived=1');if(!current())return;iaCCustomers.push(data.customer)}
-    commercialOriginalJobForm(id);const form=document.querySelector('#modalbody form');if(!form)return;
-    form.dataset.commercialJob='true';form.dataset.sxManagedSave='true';form.dataset.sxDraftIdentity='job:'+String(id||'new');form._jobContext={scope,generation,revision:storageRevision,id:job?.id||'job-'+crypto.randomUUID(),existing:Boolean(job)};
+    const job=pending?.job||jobs.find(item=>String(item.id)===String(id)),selected=String(job?.customerId||commercialDirectoryState.links.find(link=>String(link.contactId)===String(job?.clientId))?.customerId||'');
+    if(selected&&!iaCCustomers.some(c=>String(c.id)===selected)){const data=await serverJson('/api/customers/'+encodeURIComponent(selected)+'?includeArchived=1');if(!current())return;iaCCustomers=iaCCustomers.slice(0,50);iaCCustomers.push(data.customer)}
+    commercialOriginalJobForm(id,pending?.job);const form=document.querySelector('#modalbody form');if(!form)return;
+    form.dataset.commercialJob='true';form.dataset.sxManagedSave='true';form.dataset.sxDraftIdentity='job:'+String(id||'new');
+    form._jobContext={scope,generation,key,revision:storageRevision,id:job?.id??'job-'+crypto.randomUUID(),existing:Boolean(id)};
+    form._jobPending=pending;
     const label=document.createElement('label');label.textContent='Client';const select=document.createElement('select');select.name='customerId';select.required=Boolean(selected||!job);
     select.innerHTML='<option value="">'+(job?'Client historique · conserver le libellé':'Choisir le client…')+'</option>'+iaCCustomers.filter(c=>!c.archivedAt||String(c.id)===selected).map(c=>'<option value="'+esc(c.id)+'" '+(String(c.id)===selected?'selected':'')+'>'+esc(e2e02CustomerChoiceLabel(c)+(c.archivedAt?' · fiche inactive':''))+'</option>').join('');label.append(select);
-    const input=form.querySelector('[name=client]');input.closest('label').before(label);input.readOnly=Boolean(selected);select.onchange=()=>{const c=iaCCustomers.find(c=>String(c.id)===select.value);input.readOnly=Boolean(c);if(c)input.value=e2e02CustomerLabel(c)};
-    const error=document.createElement('p');error.id='commercialJobError';error.className='form-error';error.setAttribute('role','alert');form.querySelector('.modal-actions').before(error);
+    const input=form.querySelector('[name=client]');input.closest('label').before(label);input.readOnly=Boolean(selected);select.onchange=()=>{const c=e2e02PickerCustomer(form,select.value);input.readOnly=Boolean(c);if(c)input.value=e2e02CustomerLabel(c)};
+    const notice=document.createElement('p');notice.className='notice';notice.dataset.jobPending='true';notice.hidden=true;notice.setAttribute('role','status');notice.textContent='Votre demande est conservée. Vérifiez son enregistrement avant de modifier les champs ; fermer ou recharger cette page ne crée pas un nouveau chantier.';
+    const error=document.createElement('p');error.id='commercialJobError';error.className='form-error';error.setAttribute('role','alert');form.querySelector('.modal-actions').before(notice,error);
+    e2e02MountCustomerPicker(form);commercialProtectUncertain(form);
   }catch(error){if(current())toast(error.message||'Chantier indisponible.')}
 };
-function commercialProtectUncertain(form){
-  const uncertain=Boolean(form._jobPending?.attempted&&!form._jobPending?.acknowledged);
-  const name=form.querySelector('[name=name]'),customer=form.querySelector('[name=customerId]');
-  if(name)name.readOnly=uncertain;
-  if(customer)customer.disabled=uncertain;
-}
 async function commercialSaveJob(event,id,data){
-  event.preventDefault();const form=event.target,context=form._jobContext,error=form.querySelector('#commercialJobError'),button=form.querySelector('.modal-actions button.primary');
-  if(form._jobBusy)return;
-  const current=()=>context&&context.scope===iaCQuoteScope()&&context.generation===iaCQuoteWorkspaceGeneration;
+  event.preventDefault();const form=event.target,context=form._jobContext;
+  if(!context||form._jobBusy||commercialJobWrites.has(context.key))return;
+  const current=()=>context.scope===iaCQuoteScope()&&context.generation===iaCQuoteWorkspaceGeneration;
   if(!current()||!globalThis.socleCurrentAccess?.owner||globalThis.socleAccessPreview)return;
-  form._jobBusy=true;button.disabled=true;error.textContent='';
+  form._jobBusy=true;form.querySelector('#commercialJobError').textContent='';
+  let pending=form._jobPending,writeRejected=false;
   try{
     if(workspaceSnapshot()!==savedSnapshot||saveRunning||storageConflict)throw Error('Le dossier a changé. Conservez votre saisie et rechargez avant de reprendre.');
-    if(!form._jobPending){
-      const state=JSON.parse(savedSnapshot),old=state.jobs.find(j=>String(j.id)===String(context.id)),selected=String(new FormData(form).get('customerId')||'');
-      const customer=iaCCustomers.find(c=>String(c.id)===selected);
+    let state=JSON.parse(savedSnapshot);
+    if(!pending){
+      const old=state.jobs.find(j=>String(j.id)===String(context.id)),selected=String(new FormData(form).get('customerId')||'');
+      const customer=e2e02PickerCustomer(form,selected);
       const linked=old?.customerId||commercialDirectoryState.links.find(link=>String(link.contactId)===String(old?.clientId))?.customerId;
       if(selected&&(!customer||customer.archivedAt&&String(linked)!==selected))throw Error('Choisissez un client actif pour cette affectation.');
       const job={...(old||{id:context.id,color:'purple',required:[],photos:[],execution:[],materials:[],contacts:[],notes:[],documents:[],timeEntries:[],dailyChecks:{}}),...data};
       if(customer){job.customerId=customer.id;job.client=e2e02CustomerLabel(customer);if(customer.sourceContactId)job.clientId=contacts.find(c=>String(c.id)===String(customer.sourceContactId))?.id??customer.sourceContactId;else delete job.clientId}
       else if(linked)throw Error('Le client lié ne peut pas être retiré de ce chantier.');
-      const index=state.jobs.findIndex(j=>String(j.id)===String(context.id));if(index<0)state.jobs.push(job);else state.jobs[index]=job;
-      form._jobPending={state,job,revision:context.revision};
+      pending={version:1,job,revision:context.revision,attempted:false,acknowledged:false};
+      commercialKeepJob(context.key,pending);form._jobPending=pending;
     }
-    const pending=form._jobPending;
-    // Resolve an uncertain previous PUT by reading the actual saved job first.
-    if(pending.attempted){const actual=await serverJson('/api/state');if(!current())return;const job=actual.state?.jobs?.find(j=>String(j.id)===String(context.id));if(JSON.stringify(job)===JSON.stringify(pending.job)){pending.state=actual.state;pending.revision=actual.revision;pending.acknowledged=true}else if(actual.revision!==pending.revision)throw Error('Une autre modification existe sur le serveur. Votre saisie est conservée ici.');}
-    if(!pending.acknowledged){pending.attempted=true;commercialWriteDepth++;try{const result=await serverJson('/api/state',{method:'PUT',body:JSON.stringify({revision:pending.revision,state:pending.state})});pending.revision=result.revision;pending.acknowledged=true}finally{commercialWriteDepth=Math.max(0,commercialWriteDepth-1)}}
+    commercialJobWrites.set(context.key,pending);commercialProtectUncertain(form);
+    // Read before retrying: keep the same identity across closure, reload and lost responses.
+    if(pending.attempted){
+      const actual=await serverJson('/api/state');if(!current())return;
+      const job=actual.state?.jobs?.find(j=>String(j.id)===String(pending.job.id));
+      if(commercialJobMatches(job,pending.job)){state=actual.state;pending.revision=actual.revision;pending.acknowledged=true}
+      else if(actual.revision!==pending.revision||pending.acknowledged)throw Error('Une autre modification existe sur le serveur. Votre demande est conservée ; vérifiez ce chantier avant de continuer.');
+      else state=actual.state;
+    }
+    if(!pending.acknowledged){
+      const index=state.jobs.findIndex(j=>String(j.id)===String(pending.job.id));if(index<0)state.jobs.push(pending.job);else state.jobs[index]=pending.job;
+      pending.attempted=true;commercialKeepJob(context.key,pending);commercialWriteDepth++;
+      try{const result=await serverJson('/api/state',{method:'PUT',body:JSON.stringify({revision:pending.revision,state})});pending.revision=result.revision;pending.acknowledged=true}
+      catch(problem){writeRejected=problem.status>=400&&problem.status<500;throw problem}
+      finally{commercialWriteDepth=Math.max(0,commercialWriteDepth-1)}
+    }
+    commercialKeepJob(context.key,pending);
     if(!current())return;
+    const target=commercialJobTarget(context.key);
+    // Do not restore the whole workspace behind another form or discard its draft.
+    if(target!==form)return;
     if(workspaceSnapshot()!==savedSnapshot)throw Error('Le chantier est enregistré, mais d’autres changements locaux restent à reprendre.');
-    globalThis.sxAcknowledgeForm?.(form);restoreWorkspace(pending.state);storageRevision=pending.revision;savedSnapshot=workspaceSnapshot();saveFailed=false;render();toast('Chantier enregistré sur le serveur.');
-  }catch(problem){if(current()&&form.isConnected){if(problem.status>=400&&problem.status<500&&!form._jobPending?.acknowledged)form._jobPending=null;error.textContent=problem.message||'Enregistrement interrompu. Vérifiez la même demande en réessayant.';commercialProtectUncertain(form)}}
-  finally{form._jobBusy=false;if(button.isConnected)button.disabled=false}
+    sessionStorage.removeItem(context.key);
+    globalThis.sxAcknowledgeForm?.(form);
+    restoreWorkspace(state);storageRevision=pending.revision;savedSnapshot=workspaceSnapshot();saveFailed=false;render();toast('Chantier enregistré sur le serveur.');
+  }catch(problem){
+    if(writeRejected||!pending?.attempted){
+      try{sessionStorage.removeItem(context.key)}catch{}
+      pending=null;form._jobPending=null;
+    }
+    if(current()){
+      const target=commercialJobTarget(context.key);
+      if(target){target._jobPending=pending;target.querySelector('#commercialJobError').textContent=problem.message||'Enregistrement interrompu. Vérifiez la même demande en réessayant.'}
+    }
+  }finally{
+    commercialJobWrites.delete(context.key);form._jobBusy=false;
+    if(current()){const target=commercialJobTarget(context.key);if(target){target._jobBusy=false;commercialProtectUncertain(target)}}
+  }
 }
+
+// Mission 03: persisted documents and invoices; no demo-file or name matching.
+let contactFilesState=null,contactFilesEpoch=0,contactFileModalEpoch=0;
+function contactFilesKey(){return [iaCQuoteScope(),iaCQuoteWorkspaceGeneration,currentContactId,contactFilesEpoch].join('|')}
+const contactFilesNavigateBase=navigate;
+navigate=function(...args){contactFilesEpoch++;contactFilesState=null;return contactFilesNavigateBase(...args)};
+const contactFilesOpenBase=openContact;
+openContact=function(...args){contactFilesEpoch++;contactFilesState=null;return contactFilesOpenBase(...args)};
+const contactFileModalBase=modal;
+modal=function(...args){contactFileModalEpoch++;return contactFileModalBase(...args)};
+const contactFileCloseBase=closeModal;
+closeModal=function(...args){contactFileModalEpoch++;return contactFileCloseBase(...args)};
+function contactFilesUrl(id,action=''){return '/api/contact-files/'+encodeURIComponent(currentContactId)+'/documents/'+encodeURIComponent(id)+(action?'/'+action:'')}
+function contactFilesButton(d){return d.available?'<button type="button" class="btn" data-contact-file="'+esc(d.id)+'">Ouvrir '+esc(d.title)+'</button>':'<span class="subtle">'+esc(d.title)+' — fichier indisponible</span>'}
+function contactFilesContents(s){
+ if(s.status==='loading')return '<p role="status">Chargement des factures et pièces…</p>';
+ if(s.status==='error')return '<p role="alert">Pièces indisponibles. <button type="button" class="btn" onclick="contactFilesState=null;render()">Réessayer</button></p>';
+ return (s.data.financeVisible?s.data.invoices.map(i=>'<div class="detail-row"><span><strong>'+esc(i.reference)+'</strong><small>'+esc(i.date)+' · '+esc(i.status)+'</small><span>'+ (i.documents.length?i.documents.map(contactFilesButton).join(' '):'Aucune pièce jointe accessible.')+'</span></span><b>'+money(i.totalCents/100)+'</b></div>').join('')||'<p>Aucune facture associée par identifiant.</p>':'<p>Factures masquées selon vos droits comptables.</p>')+'<h3>Documents associés</h3>'+(s.data.documents.map(contactFilesButton).join(' ')||'<p>Aucun document accessible associé.</p>')+'<p class="subtle">Seules les pièces enregistrées et accessibles sont proposées.</p>';
+}
+async function contactFilesLoad(s){
+ try{s.data=await serverJson('/api/contact-files/'+encodeURIComponent(s.contactId));s.status='ready'}catch{s.status='error'}
+ if(contactFilesState!==s||contactFilesKey()!==s.key||view!=='contact')return;
+ const panel=document.querySelector('[data-contact-files-body]');if(panel)panel.innerHTML=contactFilesContents(s);
+}
+const contactFilesDetailBase=contactDetail;
+contactDetail=function(){
+ const html=contactFilesDetailBase();if(view!=='contact'||!commercialHas('customers.view'))return html;
+ const key=contactFilesKey();if(!contactFilesState||contactFilesState.key!==key){const s={key,contactId:String(currentContactId),status:'loading'};contactFilesState=s;queueMicrotask(()=>contactFilesLoad(s))}
+ return html+'<section class="panel" data-contact-files><div class="panel-head"><h2>Factures et pièces enregistrées</h2></div><div data-contact-files-body>'+contactFilesContents(contactFilesState)+'</div></section>';
+};
+let contactFileOpening=0;
+async function contactFileOpen(id){
+ const key=contactFilesKey(),modalEpoch=contactFileModalEpoch,sequence=++contactFileOpening;
+ const current=()=>key===contactFilesKey()&&view==='contact'&&sequence===contactFileOpening&&modalEpoch===contactFileModalEpoch&&!document.querySelector('#modal[open]');
+ try{const result=await serverJson(contactFilesUrl(id));if(!current())return;const d=result.document;if(String(d?.id)!==String(id))throw Error('Pièce indisponible.');
+  modal(esc(d.title),'<p>'+esc(d.originalName)+'</p><p>Le serveur revérifie vos droits au téléchargement.</p><div class="modal-actions"><button type="button" class="btn primary" data-contact-file-download="'+esc(d.id)+'" data-filename="'+esc(d.originalName)+'">Télécharger la pièce</button></div>');
+ }catch{if(current())toast('Pièce indisponible ou accès non autorisé. Actualisez la fiche.')}
+}
+document.addEventListener('click',event=>{const button=event.target.closest?.('#main [data-contact-file]');if(button){event.preventDefault();contactFileOpen(button.dataset.contactFile)}});
+
+async function contactFileDownload(button){
+ const key=contactFilesKey(),epoch=contactFileModalEpoch,url=contactFilesUrl(button.dataset.contactFileDownload,'download'),organization=activeSocleOrganizationId;
+ const current=()=>key===contactFilesKey()&&view==='contact'&&epoch===contactFileModalEpoch&&button.isConnected&&document.querySelector('#modal[open]');
+ button.disabled=true;
+ try{const blob=await serverBlob(url,{socleOrganizationId:organization});if(!current())return;const link=document.createElement('a'),objectUrl=URL.createObjectURL(blob);link.href=objectUrl;link.download=button.dataset.filename||'document';link.click();setTimeout(()=>URL.revokeObjectURL(objectUrl),1000)}catch{if(current())toast('Pièce indisponible ou accès non autorisé.')}finally{if(current())button.disabled=false}
+}
+document.addEventListener('click',event=>{const button=event.target.closest?.('#modal [data-contact-file-download]');if(button){event.preventDefault();contactFileDownload(button)}});

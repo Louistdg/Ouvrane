@@ -128,8 +128,9 @@ async function stockBarcodeStartCamera(){
     const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
     if(generation!==stockBarcodeCameraGeneration||!video.isConnected){stream.getTracks().forEach(track=>track.stop());return;}
     stockBarcodeStream=stream;video.srcObject=stockBarcodeStream;await video.play();
+    if(generation!==stockBarcodeCameraGeneration||!video.isConnected||stockBarcodeStream!==stream){stream.getTracks().forEach(track=>track.stop());return;}
     if('BarcodeDetector' in globalThis){
-      try{const supported=await BarcodeDetector.getSupportedFormats?.(),wanted=['ean_13','ean_8','upc_a','code_128','code_39','itf'];stockBarcodeDetector=new BarcodeDetector(supported?.length?{formats:wanted.filter(format=>supported.includes(format))}:undefined)}
+      try{const supported=await BarcodeDetector.getSupportedFormats?.(),wanted=['ean_13','ean_8','upc_a','code_128','code_39','itf'];if(generation!==stockBarcodeCameraGeneration||stockBarcodeStream!==stream)return;stockBarcodeDetector=new BarcodeDetector(supported?.length?{formats:wanted.filter(format=>supported.includes(format))}:undefined)}
       catch{stockBarcodeDetector=null}
     }
     if(!stockBarcodeDetector)await stockBarcodeLoadLibrary().catch(()=>{});

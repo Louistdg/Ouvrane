@@ -8,7 +8,7 @@ const escapeHtml = text => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').rep
 const sha256 = text => createHash('sha256').update(text).digest('hex');
 const licenceName = /(?:^|[._-])(?:licen[cs]e|notice|copying|copyright|authors)(?:$|[._-])/i;
 export const THIRD_PARTY_NOTICE_BANNER = '/*! Third-party licences and copyright notices: /third-party-notices.html */\n';
-export const THIRD_PARTY_BUNDLES = new Set(['pdfjs.js', 'pdfjs-worker.mjs', 'konva.js', 'exceljs.js', 'papaparse.js', 'tabulator.js', 'tabulator.css', 'tesseract.js', 'tesseract-worker.js', 'tesseract-core-lstm.wasm.js', 'stock-zxing.js', 'roofing-metre.js']);
+export const THIRD_PARTY_BUNDLES = new Set(['plan-geometry.js','pdfjs.js', 'pdfjs-worker.mjs', 'konva.js', 'exceljs.js', 'papaparse.js', 'tabulator.js', 'tabulator.css', 'tesseract.js', 'tesseract-worker.js', 'tesseract-core-lstm.wasm.js', 'stock-zxing.js', 'roofing-metre.js']);
 export const BROWSER_DISTRIBUTIONS = [
   'node_modules/pdfjs-dist/build/pdf.mjs',
   'node_modules/pdfjs-dist/build/pdf.worker.min.mjs',
@@ -24,7 +24,7 @@ export const BROWSER_DISTRIBUTIONS = [
   'node_modules/@zxing/library/esm/core/DecodeHintType.js',
   'node_modules/@zxing/browser/esm/readers/BrowserMultiFormatReader.js',
 ];
-const vendoredFiles = ['scripts/roofing-metre/vendor/LICENCE.md', 'scripts/roofing-metre/vendor/big.cjs'];
+const vendoredFiles = ['licenses/plan-geometry/polygon-clipping-LICENSE.md','licenses/plan-geometry/splaytree-README-LICENSE.md','licenses/plan-geometry/robust-predicates-LICENSE','worker/vendor/polygon-clipping-0.15.7.cjs','scripts/roofing-metre/vendor/LICENCE.md', 'scripts/roofing-metre/vendor/big.cjs'];
 const browserPackages = ['pdfjs-dist', 'konva', 'exceljs', 'papaparse', 'tabulator-tables', 'tesseract.js', 'tesseract.js-core', '@tesseract.js-data/fra', '@zxing/browser', '@zxing/library'];
 
 // Licence text is read verbatim, never reconstructed from package.json. The

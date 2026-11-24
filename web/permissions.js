@@ -115,7 +115,7 @@ function applyCurrentServerAccess(remote){
 }
 globalThis.applyCurrentServerAccess=applyCurrentServerAccess;
 async function loadServerAccess(force=false){
-  if(serverAccessLoading||serverAccessReady&&!force)return;serverAccessLoading=true;serverAccessError='';
+  if(serverAccessLoading||!force&&(serverAccessReady||serverAccessError))return;serverAccessLoading=true;serverAccessError='';
   try{const data=await serverJson('/api/access-control');applyServerAccessMembers(data.members);serverAccessReady=true;if(isCurrentServerOwner())await loadServerInvitations()}
   catch(error){serverAccessError=error.message||'Droits serveur indisponibles.';serverAccessReady=false}
   finally{serverAccessLoading=false;if(view==='permissions')render()}
@@ -253,7 +253,9 @@ function previewMemberAccess(key){
 }
 
 function permissionsView(){
-  if(!serverAccessReady){if(!serverAccessLoading)queueMicrotask(()=>loadServerAccess());return heading('Accès & permissions','Le patron choisit précisément ce que chaque personne peut voir et faire.',false)+`<section class="panel"><h2>${serverAccessError?'Connexion aux droits impossible':'Chargement des droits serveur…'}</h2><p class="subtle">${esc(serverAccessError||'Lecture des rôles, permissions et périmètres chantier.')}</p>${serverAccessError?'<button class="btn primary" onclick="loadServerAccess(true)">Réessayer</button>':''}</section>`}
+  const access=globalThis.socleCurrentAccess,codes=new Set(access?.permissions||[]);
+  if(access&&access.roleCode!=='OWNER'&&!codes.has('permissions.view')&&!codes.has('permissions.manage'))return heading('Accès & permissions','Les droits sont réservés aux personnes autorisées.',false)+'<section class="access-denied"><h2>Accès non autorisé</h2><p>Vous ne pouvez pas consulter les droits d’accès.</p></section>';
+  if(!serverAccessReady){if(!serverAccessLoading&&!serverAccessError)queueMicrotask(()=>loadServerAccess());return heading('Accès & permissions','Le patron choisit précisément ce que chaque personne peut voir et faire.',false)+`<section class="panel"><h2>${serverAccessError?'Connexion aux droits impossible':'Chargement des droits serveur…'}</h2><p class="subtle">${esc(serverAccessError||'Lecture des rôles, permissions et périmètres chantier.')}</p>${serverAccessError?'<button class="btn primary" onclick="loadServerAccess(true)">Réessayer</button>':''}</section>`}
   ensureAccessAssignments();
   const members=accessMembers(),member=members.find(item=>item.key===selectedAccessKey)||members[0],assignment=accessAssignments[member.key],serverLocked=!member.owner&&!member.serverUserId,locked=member.owner||serverLocked,summary=accessSummary(assignment);
   const scopes=[...new Set(['Ses propres informations','Ses chantiers uniquement','Son équipe et ses chantiers','Toute l’entreprise',...Object.values(accessProfiles).map(profile=>profile.scope)])];

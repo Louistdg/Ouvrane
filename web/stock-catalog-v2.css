@@ -76,3 +76,17 @@
 @media(min-width:701px){
   .stock-catalog-desktop{display:block}
 }
+
+/* The summary is already spaced by its parent grid; avoid stacked legacy margins. */
+body #main .stock-catalog-shell > .stock-catalog-summary.finance-grid{margin:0}
+/* Keep row actions available while wide stock columns scroll. */
+body.socle-v3 .stock-catalog-desktop{position:relative;overflow-x:auto;max-width:100%}
+body.socle-v3 .stock-catalog-desktop table{min-width:820px}
+body.socle-v3 .stock-catalog-desktop .stock-catalog-row-actions,
+body.socle-v3 .stock-catalog-desktop .stock-catalog-actions-heading{position:sticky;right:0;z-index:2;background:var(--sx-surface);box-shadow:-6px 0 10px -9px var(--sx-ink);min-width:132px}
+body.socle-v3 .stock-catalog-desktop .stock-catalog-actions-heading{z-index:4}
+body.socle-v3 .stock-catalog-row-actions .link{min-height:36px;padding:7px 5px}
+body.socle-v3 .stock-catalog-desktop .sx-select-cell,
+body.socle-v3 .stock-catalog-desktop .sx-select-head{position:sticky;right:0;background:var(--sx-surface);z-index:3}
+body.socle-v3 .stock-catalog-desktop table.sx-selecting .stock-catalog-row-actions,
+body.socle-v3 .stock-catalog-desktop table.sx-selecting .stock-catalog-actions-heading{right:44px}

@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import vm from 'node:vm';
+import {readFileSync} from 'node:fs';
+
+const nodes=new Map();
+const node=id=>{if(!nodes.has(id))nodes.set(id,{isConnected:true,innerHTML:'',addEventListener(){},querySelector:node});return nodes.get(id)};
+let requests=0,confirmations=0,closed=0;
+const context=vm.createContext({console,Intl,Date,esc:s=>String(s??''),addEventListener(){},document:{querySelector:node},MutationObserver:class{observe(){}},closeModal(){closed++},backModal(){},openQuoteDraftFolder(){},confirm(){confirmations++;return false},serverJson(){requests++;throw Error('Navigation should have been cancelled')},toast(){}});
+vm.runInContext(readFileSync(new URL('../web/plans.js',import.meta.url),'utf8'),context);
+const run=s=>vm.runInContext(s,context);
+run("planDesk={root:document.querySelector('#planDesk'),dirty:false,pending:[{x:12,y:34}]}");
+await run("openPlanDesk('another-plan')");
+assert.equal(requests,0,'Opening another plan must preserve an unfinished drawing when cancelled');
+assert.equal(run('planDesk.pending.length'),1);
+run('closeModal()');assert.equal(closed,0);assert.equal(confirmations,2);
+run('backModal()');assert.equal(run('planDesk.pending.length'),1);
+await run("openPlanList({projectId:'demo'})");assert.equal(requests,0);
+await run("planUploadForm('demo')");assert.equal(requests,0);
+run("viewPlanHistory(2,'old')");assert.equal(run('planDesk.pending.length'),1);
+assert.equal(run("formatPlanDate('invalid')"),'');
+assert.match(run("formatPlanDate('2026-10-25T17:39:36Z')"),/18:39/);
+run("planDesk.versions=[{id:'new',approved:true},{id:'old',approved:true}];planDesk.version={id:'old',version:1,approved:true,approval:{note:'Migration 0067 · révision terrain existante préservée',approvedAt:'2026-10-25T17:39:36Z'}};renderPlanApproval()");
+const historical=node('#planApproval').innerHTML;
+assert.match(historical,/historique/i);assert.doesNotMatch(historical,/Migration 0067|T17:39/);
+run("planDesk.version={id:'new',version:2,approved:true,approval:{note:'Indice validé'}};renderPlanApproval()");
+assert.match(node('#planApproval').innerHTML,/Approuvée pour le terrain/);
+assert.match(node('#planApproval').innerHTML,/Indice validé/);
+console.log('PASS plan reader: cancelled navigation preserves unfinished drawings; historical approvals and Brussels dates');

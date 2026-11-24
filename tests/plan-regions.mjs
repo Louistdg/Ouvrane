@@ -1,0 +1,32 @@
+import assert from 'node:assert/strict';
+import {calculatePlanPage} from '../worker/plan-geometry.js';
+import {multiPolygonArea,planMeasureSource,PAGE_OPENINGS_SOURCE} from '../worker/plan-regions.js';
+const rect=(x,y,w,h)=>[[x,y],[x+w,y],[x+w,y+h],[x,y+h]];
+function page(areas,openings=[]){return {pageNumber:1,pageWidth:1000,pageHeight:1000,calibration:{points:[{x:0,y:0},{x:1,y:0}],lengthM:'20'},annotations:[...areas.map((p,i)=>({id:'a'+i,kind:'area',label:'Surface '+i,p})),...openings.map((p,i)=>({id:'o'+i,kind:'opening',label:'Réservation '+i,p}))].map(a=>({id:a.id,kind:a.kind,label:a.label,points:a.p.map(([x,y])=>({x:x/20,y:y/20}))}))}}
+let checks=0;function check(name,a,b){assert.deepEqual(a,b,name);checks++;console.log('PASS '+name)}
+let r=calculatePlanPage(page([rect(0,0,10,8)],[rect(2,2,2,3),rect(3,3,2,3)])).result;
+check('Overlapping openings deducted once',r.netSurfaceM2,'70.000');
+check('Union source uses ten square metres',planMeasureSource(r,PAGE_OPENINGS_SOURCE).quantity,'10.000');
+check('Individual drawn opening retains six square metres',r.annotations[1].quantity,'6.000');
+check('Reversed contours give identical net',calculatePlanPage(page([rect(0,0,10,8).reverse()],[rect(2,2,2,3).reverse(),rect(3,3,2,3)])).result.netSurfaceM2,'70.000');
+check('Nested reservations do not become an island',calculatePlanPage(page([rect(0,0,10,8)],[rect(2,2,2,3),rect(2.5,2.5,1,1)])).result.netSurfaceM2,'74.000');
+check('Exterior reservation contributes zero',calculatePlanPage(page([rect(0,0,10,8)],[rect(11,1,2,3)])).result.openingsM2,'0.000');
+r=calculatePlanPage(page([rect(0,0,10,8)],[rect(9,1,2,3)])).result;
+check('Partly outside individual source is clipped',planMeasureSource(r,'o0').quantity,'3.000');
+check('Touching reservations do not overlap',calculatePlanPage(page([rect(0,0,10,8)],[rect(1,1,2,3),rect(3,1,2,3)])).result.netSurfaceM2,'68.000');
+check('Fully covered contour has zero net',calculatePlanPage(page([rect(0,0,10,8)],[rect(0,0,12,10)])).result.netSurfaceM2,'0.000');
+check('Oblique contour with clipped hole',calculatePlanPage(page([[[0,0],[6,0],[0,4]]],[rect(0,0,3,2)])).result.netSurfaceM2,'6.000');
+check('Disjoint surfaces and their holes',calculatePlanPage(page([rect(0,0,2,2),rect(4,0,2,2)],[rect(1,1,4,2)])).result.netSurfaceM2,'6.000');
+check('A hole is subtracted, not added',multiPolygonArea([[rect(0,0,10,8),rect(2,2,2,3)]]),74);
+check('Ring orientation does not change a hole',multiPolygonArea([[rect(0,0,10,8).reverse(),rect(2,2,2,3).reverse()]]),74);
+check('Independent island inside a hole',multiPolygonArea([[rect(0,0,10,8),rect(2,2,4,4)],[rect(3,3,1,1)]]),65);
+check('Aggregate rounds once after raw calculation',calculatePlanPage(page([rect(0,0,1,1.0004),rect(2,0,1,1.0004)])).result.surfaceM2,'2.001');
+r=calculatePlanPage(page([],[rect(1,1,2,3)])).result;
+check('Opening-only drawing does not invent an exterior',r.netSurfaceM2,null);
+check('Opening-only source preserves its measured area',planMeasureSource(r,'o0').quantity,'6.000');
+check('Old snapshots do not acquire a new union source',planMeasureSource({annotations:[{id:'old',kind:'opening',quantity:'6.000'}]},PAGE_OPENINGS_SOURCE),null);
+check('Old individual source remains exact',planMeasureSource({annotations:[{id:'old',kind:'opening',quantity:'6.000'}]},'old').quantity,'6.000');
+const scaled=page([rect(0,0,10,8)],[rect(9,1,2,3)]);scaled.pageWidth=1600;scaled.pageHeight=1600;
+check('Changing display dimensions keeps calibrated net area',calculatePlanPage(scaled).result.netSurfaceM2,'77.000');
+assert.throws(()=>calculatePlanPage(page([[[0,0],[4,4],[0,4],[4,0]]])),/croise/);checks++;
+console.log('PASS '+checks+' extended geometry checks');

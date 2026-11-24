@@ -1,0 +1,5 @@
+﻿Référence;Désignation;Prix;Base;Unité;Conditionnement;TVA;Date
+00123;Vis, inox « façade »;12,50;HT;pièce;1;21;2026-10-24
+;;;;;;;
+00234;"Boîte de chevilles ""pro""";121,00;TTC;boîte;10;21;2026-10-24
+00345;"=HYPERLINK(""https://invalid.example"";""texte uniquement"")";0,00;HT;pc;1;0;2026-10-24

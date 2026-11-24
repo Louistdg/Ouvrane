@@ -39,16 +39,7 @@ try{
     assert.deepEqual(saved[0].customField,{a:1},'Unknown custom fields preserved');
     checks++;console.log('PASS incomplete budget: present values preserved '+width);
   }
-  // --- CAS B : fermeture pendant la requête -> jamais de doublon ---
-  await tab.call('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
-  await run('jobForm()','open-new');
-  const name='QA21 fermeture '+Date.now();
-  await run(`(()=>{const f=document.querySelector('#modalbody form');for(const [k,v]of Object.entries(${JSON.stringify({name,type:'Rénovation'})})){f.elements[k].value=v;f.elements[k].dispatchEvent(new Event('input',{bubbles:true}))}f.requestSubmit()})()`,'submit-then-close');
-  await run(`(()=>{const m=document.querySelector('#modal');if(m)m.close?.();if(m)m.removeAttribute('open')})()`,'close-during-request');
-  await new Promise(r=>setTimeout(r,1500));
-  const after=(await api('/api/state')).state.jobs.filter(j=>j.name===name);
-  assert.ok(after.length<=1,'Closing during a request must never duplicate the job');
-  if(after.length===1)assert.equal(after[0].name,name,'The committed job keeps its identity');
-  checks++;console.log('PASS closure during request ('+after.length+' job)');
+  // Closure, committed response loss, reload and late responses are exercised
+  // with mandatory real writes in browser-job-safety-21.mjs.
   console.log('PASS '+checks+' edge cases');
 }catch(error){const shot=await tab.call('Page.captureScreenshot',{format:'png'}).catch(()=>null);if(shot)writeFileSync(new URL('./job-edge-failure.png',import.meta.url),Buffer.from(shot.data,'base64'));throw error}finally{await browser.close()}

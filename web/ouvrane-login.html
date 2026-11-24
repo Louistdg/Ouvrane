@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="fr" class="theme-petrole">
+<head><link rel="icon" href="data:,">
+  <meta charset="utf-8">
+  <script>(function(){var ids=["repere-eclipse","petrole","repere-cuivre","repere-lunaire","repere-amethyste","repere-opaline"],id="petrole";try{var saved=localStorage.getItem("socle-v3.theme");if(localStorage.getItem("socle-v3.theme-choice")==="explicit"&&ids.includes(saved))id=saved}catch{}window.socleInitialTheme=id;if(!document.documentElement.className)document.documentElement.style.backgroundColor={"repere-eclipse":"#10283B","petrole":"#0e1b1d","repere-cuivre":"#24303A","repere-lunaire":"#DCE4E7","repere-amethyste":"#25202E","repere-opaline":"#F1EBDF"}[id];document.documentElement.dataset.v3Theme=id;document.documentElement.className="theme-"+id.replace("repere-","");})();</script>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#102123">
+  <meta name="description" content="OUVRANE — Pétrole, menthe et ivoire. Connectez-vous à votre espace de travail Ouvrane.">
+  <title>Connexion — Ouvrane</title>
+  <link rel="stylesheet" href="/ouvrane-login.css">
+  <script src="/ouvrane-login.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#connexion">Aller à la connexion</a>
+  <div class="connection-shell">
+    <header class="site-header">
+      <a class="brand" href="/login" aria-label="Ouvrane — Connexion"><img src="/ouvrane-01-eclipse.png" width="1536" height="1024" alt="OUVRANE" fetchpriority="high"></a>
+      <p class="header-context">De l’atelier au terrain.</p>
+      <label class="login-appearance" for="login-theme">Apparence
+        <select id="login-theme"><option value="repere-eclipse">Éclipse</option><option value="petrole" selected>Pétrole</option><option value="repere-cuivre">Cuivre</option><option value="repere-lunaire">Lunaire</option><option value="repere-amethyste">Améthyste</option><option value="repere-opaline">Opaline</option></select>
+      </label>
+    </header>
+    <main class="connection-main">
+      <section class="brand-story" aria-labelledby="story-title">
+        <div class="horizon-line" aria-hidden="true"></div>
+        <h1 id="story-title"><span>Tout commence</span><span>sur le terrain.</span></h1>
+        <p class="story-copy">Retrouvez vos chantiers, votre équipe et le fil de vos journées.</p>
+        <p class="story-close"><span>Planifier</span><span>Coordonner</span><span>Avancer</span></p>
+      </section>
+      <section class="form-region" id="connexion" aria-labelledby="connection-title">
+        <header class="connection-intro"><h2 id="connection-title">Retrouver votre espace</h2><p>Un point de départ pour votre journée.</p></header>
+        <form id="connection-form" action="/auth/login" method="post">
+          <div class="fields">
+            <div class="field-group">
+              <label for="email">Adresse e-mail</label>
+              <input id="email" name="email" maxlength="254" type="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="vous@entreprise.be" aria-describedby="email-error" required>
+              <p class="field-error" id="email-error" hidden></p>
+            </div>
+            <div class="field-group">
+              <div class="field-heading"><label for="password">Mot de passe</label><button class="text-button recovery-button" id="recovery-button" type="button" aria-expanded="false" aria-controls="assistance">Mot de passe oublié ?</button></div>
+              <div class="password-field">
+                <input id="password" name="password" maxlength="1024" type="password" autocomplete="current-password" placeholder="Votre mot de passe" aria-describedby="password-error" required>
+                <button class="password-toggle" id="password-toggle" type="button" aria-label="Afficher le mot de passe" aria-pressed="false" title="Afficher le mot de passe">
+                  <svg class="eye-open" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.3-6.3 9.5-6.3S21.5 12 21.5 12s-3.3 6.3-9.5 6.3S2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg>
+                  <svg class="eye-closed" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18M9.9 5.9a10.5 10.5 0 0 1 2.1-.2c6.2 0 9.5 6.3 9.5 6.3a16.2 16.2 0 0 1-3.2 3.9M6.1 7.4A17.3 17.3 0 0 0 2.5 12s3.3 6.3 9.5 6.3a11.3 11.3 0 0 0 4.2-.8M10 10a2.8 2.8 0 0 0 4 4"/></svg>
+                </button>
+              </div>
+              <p class="field-error" id="password-error" hidden></p>
+            </div>
+          </div>
+          <div class="submit-row"><button class="submit-button" type="submit"><span>Se connecter</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h15M13 5l7 7-7 7"/></svg></button></div>
+          <p class="form-status" id="form-status" role="status" aria-live="polite" hidden></p>
+          <div class="help-row"><p>Un accès à retrouver ?</p><button class="text-button" id="help-button" type="button" aria-expanded="false" aria-controls="assistance">Besoin d’aide</button></div>
+        </form>
+        <section class="assistance" id="assistance" aria-labelledby="assistance-title" tabindex="-1" hidden>
+          <div class="assistance-heading"><h2 id="assistance-title">Retrouver votre accès</h2><button class="close-assistance" id="close-assistance" type="button" aria-label="Fermer l’aide"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+          <p id="assistance-copy">Pour retrouver votre accès, contactez le responsable de votre entreprise. Il pourra vérifier votre compte et vous accompagner. Ne communiquez jamais votre mot de passe.</p>
+        </section>
+        <noscript><p class="noscript-note">Vous pouvez vous connecter avec ce formulaire même sans JavaScript.</p></noscript>
+      </section>
+    </main>
+    <footer class="page-footer"><p>Ouvrane · De l’atelier au terrain.</p><span>Votre espace de travail</span></footer>
+  </div>
+</body>
+</html>

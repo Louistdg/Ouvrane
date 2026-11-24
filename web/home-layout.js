@@ -2,13 +2,24 @@
 (function(){
 'use strict';
 const defs=[
-  ['weather','Météo','.ia-home-weather'],['portals','Accès officiels','.ia-home-portals'],
-  ['attention','Centre de contrôle','.ia-attention'],['messages','Messages récents','.ia-owner-messages'],
-  ['tasks','Priorités','.ia-owner-tasks'],['calendar','Calendrier','.ia-owner-week'],['jobs','Chantiers','.v3-jobs'],
-  ['invoices','Factures à traiter','[data-home-office="invoices"]'],['expenses','Pièces récentes','[data-home-office="expenses"]'],['accounting-links','Comptabilité','[data-home-office="accounting-links"]']
+  ['attention','Centre de contrôle','.ia-attention'],['jobs','Chantiers','.v3-jobs'],
+  ['calendar','Calendrier','.ia-owner-week'],['tasks','Mes rappels','.ia-owner-tasks'],['messages','Messages récents','.ia-owner-messages'],
+  ['invoices','Factures à traiter','[data-home-office="invoices"]'],['expenses','Pièces récentes','[data-home-office="expenses"]'],['accounting-links','Comptabilité','[data-home-office="accounting-links"]'],
+  ['weather','Météo','.ia-home-weather'],['portals','Accès officiels','.ia-home-portals']
 ];
 const route='/api/me/preferences/dashboard/home-layout',STEP=24,GAP=12;
 let state=null,board=null,blocks=new Map(),effective={},drag=null,frame=0,scrollFrame=0,timer=0,suppressUntil=0;
+// Coalesce home refreshes while pointer capture owns the card. Context changes
+// and navigation remain immediate; only a refresh of this same home is deferred.
+let deferredHomeRender=null;
+globalThis.socleDeferHomeRender=function(){
+ if(!drag||typeof view==='undefined'||view!=='home'||!permitted()||!current(drag.state))return false;
+ deferredHomeRender=drag.state;return true;
+};
+function flushHomeRender(){
+ const pending=deferredHomeRender;deferredHomeRender=null;
+ if(pending)queueMicrotask(()=>{if(current(pending)&&typeof view!=='undefined'&&view==='home'&&permitted())render()});
+}
 const clone=value=>JSON.parse(JSON.stringify(value)),mobile=()=>innerWidth<900;
 function contextKey(){const a=globalThis.socleCurrentAccess||{};return JSON.stringify([globalThis.socleCurrentOrganizationId||'',a.userId||'',a.roleCode||'',a.scope||'',a.permissions||[],globalThis.socleAccessPreview||null])}
 function permitted(){const a=globalThis.socleCurrentAccess;return Boolean(typeof storageReady!=='undefined'&&storageReady&&a&&!globalThis.socleAccessPreview&&(a.owner||a.roleCode==='ACCOUNTING'||(a.permissions||[]).includes('customers.view')))}
@@ -59,7 +70,7 @@ function resolve(positions,heights,priority){
 function desktopGeometry(proposed,priority){
  const ids=visibleIds(),width=board.clientWidth,col=(width-GAP)/2,heights={};
  for(const id of ids){const card=blocks.get(id),span=proposed?.[id]?.span||spanFor(id);card.style.width=(span===2?width:col)+'px';heights[id]=Math.max(2,Math.ceil((card.offsetHeight+GAP)/STEP))}
- const defaults={},groups=[['weather','portals'],['attention'],['messages','tasks'],['calendar'],['jobs'],['invoices','expenses'],['accounting-links']];let row=0;
+ const defaults={},groups=[['attention'],['jobs'],['calendar'],['tasks','messages'],['invoices','expenses'],['accounting-links'],['weather','portals']];let row=0;
  for(const group of groups){let next=row;group.filter(id=>ids.includes(id)).forEach((id,index)=>{const span=proposed?.[id]?.span||spanFor(id);defaults[id]={column:span===2?0:index,row,span};next=Math.max(next,row+heights[id])});row=next}
  const positions={};for(const id of ids)positions[id]={...defaults[id],...(proposed?.[id]||state.value.positions[id]||{})};
  return {positions:resolve(positions,heights,priority),heights,col};
@@ -126,7 +137,7 @@ function autoScroll(){
  const amount=drag.y<70?-Math.min(18,(70-drag.y)/3):drag.y>innerHeight-70?Math.min(18,(drag.y-innerHeight+70)/3):0,before=scrollY;
  if(amount)window.scrollBy(0,amount);if(scrollY!==before)preview();scrollFrame=requestAnimationFrame(autoScroll);
 }
-function clearDrag(){if(!drag)return;cancelAnimationFrame(scrollFrame);scrollFrame=0;drag.ghost?.remove();blocks.get(drag.id)?.classList.remove('home-block-moving');try{drag.handle.releasePointerCapture(drag.pointerId)}catch{}dropElement()?.remove();drag=null;document.body.classList.remove('home-layout-dragging');schedule()}
+function clearDrag(){if(!drag)return;cancelAnimationFrame(scrollFrame);scrollFrame=0;drag.ghost?.remove();blocks.get(drag.id)?.classList.remove('home-block-moving');try{drag.handle.releasePointerCapture(drag.pointerId)}catch{}dropElement()?.remove();drag=null;document.body.classList.remove('home-layout-dragging');schedule();flushHomeRender()}
 function cancel(){clearDrag();renderLayout()}
 document.addEventListener('pointerdown',event=>{
  if(event.button!==0||!state?.ready||state.status==='conflict'||!permitted())return;

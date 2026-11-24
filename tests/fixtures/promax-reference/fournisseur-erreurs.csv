@@ -1,0 +1,7 @@
+Référence;Désignation;Prix;Base;Unité;Conditionnement;TVA;Date
+00123;Vis, inox « façade »;12,50;HT;pièce;1;21;2026-10-24
+00123;Doublon;9,00;HT;pc;1;21;2026-10-24
+00456;Prix absent;;HT;pc;1;21;2026-10-24
+00567;Date ambiguë;1,00;HT;pc;1;21;01/02/2026
+00678;Unité inconnue;4,00;HT;palette;;21;2026-10-24
+00789;Formule prix;=1+2;HT;pc;1;21;2026-10-24

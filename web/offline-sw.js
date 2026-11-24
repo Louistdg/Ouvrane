@@ -1,64 +1,61 @@
-/* Service worker du ouvrane : garde l'application utilisable sans reseau.
-   Strategie volontairement simple, et c'est un choix :
-   - navigation : reseau d'abord, cache ensuite (on veut la version fraiche) ;
-   - fichiers statiques : cache d'abord, puis mise a jour silencieuse ;
-   - /api/ : jamais mis en cache. Les donnees passent par le module hors
-     connexion, qui sait quoi garder et quand le rendre. Un cache HTTP de
-     reponses API melangerait deux entreprises et deux roles. */
-
-const CACHE = 'socle-shell-v1';
+/* Application shell only: API data remains protected by offline.js per account.
+   Navigations use the network first. Static assets use a cached copy while
+   a revalidation is kept alive by waitUntil. Login/error pages never replace
+   the application shell. */
+const CACHE = 'socle-shell-v2';
 const SHELL = '/';
-
+const shellPath = path => path === '/' || path === '/index.html';
+function isShellResponse(response) {
+  if (!response || !response.ok || response.redirected || response.type === 'opaque') return false;
+  const finalUrl = new URL(response.url, self.location.origin);
+  return finalUrl.origin === self.location.origin && shellPath(finalUrl.pathname) &&
+    /^text\/html(?:;|$)/i.test(response.headers.get('content-type') || '');
+}
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE).then(cache => cache.add(SHELL)).then(() => self.skipWaiting())
+    fetch(SHELL, {cache:'reload'}).then(async response => {
+      if (!isShellResponse(response)) throw new Error('Application shell unavailable; preserve the installed worker.');
+      const cache = await caches.open(CACHE);
+      await cache.put(SHELL, response);
+      await self.skipWaiting();
+    })
   );
 });
-
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE).map(key => caches.delete(key))))
+    caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('socle-shell-') && key !== CACHE).map(key => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
-
 self.addEventListener('fetch', event => {
   const request = event.request;
   if (request.method !== 'GET') return;
-
   const url = new URL(request.url);
-  if (url.origin !== self.location.origin) return;
-  if (url.pathname.startsWith('/api/')) return;
-
+  if (url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
   if (request.mode === 'navigate') {
+    if (!shellPath(url.pathname)) return;
     event.respondWith(
-      fetch(request)
-        .then(response => {
+      fetch(request).then(async response => {
+        if (isShellResponse(response)) {
           const copy = response.clone();
-          caches.open(CACHE).then(cache => cache.put(SHELL, copy)).catch(() => {});
-          return response;
-        })
-        .catch(() => caches.match(SHELL).then(cached => cached || Response.error()))
+          await caches.open(CACHE).then(cache => cache.put(SHELL, copy)).catch(() => {});
+        }
+        return response;
+      }).catch(() => caches.open(CACHE).then(cache => cache.match(SHELL)).then(cached => cached || Response.error()))
     );
     return;
   }
-
-  /* Reseau d'abord, cache seulement en secours. Un cache d'abord servirait
-     l'ancienne feuille de style apres un deploiement, et l'utilisateur verrait
-     une version differente de celle qui vient d'etre publiee. */
-  event.respondWith(
-    caches.match(request).then(cached => {
-      const network = fetch(request)
-        .then(response => {
-          if (response && response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
-          }
-          return response;
-        })
-        .catch(() => cached || Response.error());
-      return cached || network;
-    })
-  );
+  // Restrict caching to assets. Authentication and other application routes
+  // always keep their normal network semantics.
+  if (!/\.(?:css|js|mjs|woff2?|ttf|otf|png|jpe?g|gif|webp|avif|svg|ico|webmanifest)$/i.test(url.pathname)) return;
+  const cached = caches.open(CACHE).then(cache => cache.match(request));
+  const network = fetch(request).then(async response => {
+    if (response && response.ok && !response.redirected && response.type !== 'opaque') {
+      const copy = response.clone();
+      await caches.open(CACHE).then(cache => cache.put(request, copy)).catch(() => {});
+    }
+    return response;
+  }).catch(async () => (await cached) || Response.error());
+  event.waitUntil(network.then(() => {}));
+  event.respondWith(cached.then(response => response || network));
 });

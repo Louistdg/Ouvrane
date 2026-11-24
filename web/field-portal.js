@@ -1,5 +1,25 @@
 const fieldPortalState=new Map();
 const fieldPortalStockState=new Map();
+const fieldPortalRequests=new Map();
+let fieldPortalVisibleKey='',fieldPortalActions=0;
+function fieldPortalScope(){const access=globalThis.socleCurrentAccess||{},preview=globalThis.socleAccessPreview||{};return JSON.stringify([String(typeof activeSocleOrganizationId!=='undefined'?activeSocleOrganizationId:localStorage.getItem('socle.activeOrganizationId')||''),access.userId||'',access.roleCode||'',(access.permissions||[]).slice().sort(),preview.userId||'',preview.roleCode||''])}
+function fieldPortalBusy(){return fieldPortalActions>0||Boolean(document.querySelector('#modal[open]')||document.activeElement?.closest('input,textarea,select,[contenteditable="true"]'))}
+function fieldPortalVisible(){return typeof view!=='undefined'&&view==='jobWorkspace'&&currentJobId&&document.visibilityState!=='hidden'&&Boolean(document.querySelector('[data-field-portal]:not(.v3-context-hidden)'))}
+function fieldPortalComparable(data){const {generatedAt,...content}=data||{};return JSON.stringify(content)}
+function fieldPortalPaint(projectId){
+  if(view!=='jobWorkspace'||String(currentJobId||'')!==String(projectId))return;
+  const old=document.querySelector('[data-field-portal]');if(!old)return;
+  const opened=new Set([...old.querySelectorAll('details[open]')].map(e=>e.querySelector('summary')?.textContent));
+  const x=scrollX,y=scrollY,main=document.querySelector('#main'),mainTop=main?.scrollTop||0;
+  // Run the normal render chain so later portal extensions remain present.
+  if(typeof render==='function')render();
+  for(const detail of document.querySelectorAll('[data-field-portal] details'))detail.open=opened.has(detail.querySelector('summary')?.textContent);
+  if(main)main.scrollTop=mainTop;window.scrollTo(x,y);
+}
+function fieldPortalRefreshVisible(){if(fieldPortalVisible()&&!fieldPortalBusy())return loadFieldPortal(String(currentJobId),true,{quiet:true})}
+window.addEventListener('focus',()=>fieldPortalRefreshVisible());
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')fieldPortalRefreshVisible()});
+setInterval(()=>fieldPortalRefreshVisible(),15000);
 const fieldPortalInline=value=>esc(JSON.stringify(value));
 
 function fieldPortalKey(prefix){
@@ -32,9 +52,9 @@ function fieldPortalTaskHtml(task,data){
   if(canUpdate&&task.status==='in_progress'){actions.push('<button class="btn small" onclick="fieldPortalSetTaskStatus('+fieldPortalInline(task.id)+','+fieldPortalInline('done')+')">Terminer</button>');actions.push('<button class="btn small ghost" onclick="fieldPortalSetTaskStatus('+fieldPortalInline(task.id)+','+fieldPortalInline('blocked')+')">Bloqué</button>')}
   if(canUpdate&&task.status==='blocked')actions.push('<button class="btn small" onclick="fieldPortalSetTaskStatus('+fieldPortalInline(task.id)+','+fieldPortalInline('in_progress')+')">Reprendre</button>');
   if(data.capabilities.manageTasks&&task.status==='done'&&!task.validatedAt)actions.push('<button class="btn small" onclick="fieldPortalValidateTask('+fieldPortalInline(task.id)+')">Valider</button>');
-  const meta=[task.priority,task.dueAt?'Échéance '+task.dueAt:'',task.assignedTo?'Responsable '+(data.team.members.find(item=>String(item.userId)===String(task.assignedTo))?.name||task.assignedTo):'',task.validatedAt?'Validée':''].filter(Boolean).join(' · ');
+  const meta=[({low:'Basse',normal:'Normale',high:'Haute',urgent:'Urgente'})[task.priority]||task.priority,task.dueAt?'Échéance '+task.dueAt:'',task.assignedTo?'Responsable '+(data.team.members.find(item=>String(item.userId)===String(task.assignedTo))?.name||task.assignedTo):'',task.validatedAt?'Validée':''].filter(Boolean).join(' · ');
   const materials=(task.materials||[]).length?'<small>Matériaux : '+esc(task.materials.map(item=>item.name+(item.quantity!=null?' '+item.quantity+(item.unit||''):'')).join(', '))+'</small>':'';
-  return '<article class="field-card '+(task.kind==='problem'?'field-problem':'')+'"><div class="field-card-head"><strong>'+esc(task.title)+'</strong><span class="badge">'+esc(task.status)+'</span></div><p>'+esc(task.description||'')+'</p><small>'+esc(meta)+'</small>'+materials+checklist+fieldPortalPhotoHtml(task.photoDocumentIds)+'<div class="field-actions">'+actions.join('')+'</div></article>';
+  return '<article class="field-card '+(task.kind==='problem'?'field-problem':'')+'"><div class="field-card-head"><strong>'+esc(task.title)+'</strong><span class="badge">'+esc(({todo:'À faire',in_progress:'En cours',blocked:'Bloquée',done:'Terminée'})[task.status]||task.status)+'</span></div><p>'+esc(task.description||'')+'</p><small>'+esc(meta)+'</small>'+materials+checklist+fieldPortalPhotoHtml(task.photoDocumentIds)+'<div class="field-actions">'+actions.join('')+'</div></article>';
 }
 function fieldPortalNoteHtml(note){
   const buttons=note.canEdit?'<div class="field-actions"><button class="btn small ghost" onclick="fieldPortalEditNote('+fieldPortalInline(note.id)+')">Modifier</button><button class="btn small ghost" onclick="fieldPortalDeleteNote('+fieldPortalInline(note.id)+')">Supprimer</button></div>':'';
@@ -48,9 +68,10 @@ function fieldPortalQuoteHtml(quote,data){
   return '<article class="field-card"><strong>'+esc(quote.reference||quote.title||'Devis')+'</strong><ul class="field-technical-lines">'+lines+'</ul></article>';
 }
 function fieldPortalPanel(projectId){
-  const state=fieldPortalState.get(String(projectId));
+  const cached=fieldPortalState.get(String(projectId)),state=cached?.scope===fieldPortalScope()?cached:null;
+  if(cached&&!state)fieldPortalState.delete(String(projectId));
   if(!state||state.status==='loading')return '<section class="panel field-portal" data-field-portal><p class="eyebrow">TERRAIN</p><h2>Chantier du jour</h2><p class="subtle">Chargement du portail terrain…</p></section>';
-  if(state.status==='error')return '<section class="panel field-portal" data-field-portal><p class="eyebrow">TERRAIN</p><h2>Chantier du jour</h2><p class="notice">'+esc(state.error||'Portail terrain indisponible.')+'</p></section>';
+  if(state.status==='error')return '<section class="panel field-portal" data-field-portal><p class="eyebrow">TERRAIN</p><h2>Chantier du jour</h2><p class="notice">'+esc(state.error||'Portail terrain indisponible.')+'</p><button class="btn" onclick="loadFieldPortal('+fieldPortalInline(projectId)+',true)">Réessayer</button></section>';
   const data=state.data,project=data.project||{},address=project.address||{},addressText=[address.street,address.postalCode,address.city].filter(Boolean).join(' · ');
   const assignment=data.team?.assignments?.[0],open=data.time?.openForCurrentUser;
   const topActions=[];
@@ -68,7 +89,8 @@ function fieldPortalPanel(projectId){
   if(data.capabilities.consumeStock)topActions.push('<button class="btn ghost" onclick="fieldPortalOpenStockConsume('+fieldPortalInline(projectId)+')">📦 Prendre du stock</button>');
   const members=(data.team?.members||[]).map(member=>'<span class="field-chip">'+esc(member.name)+'</span>').join('');
   const timeRows=(data.time?.entries||[]).map(entry=>'<div class="detail-row"><span>'+esc((entry.people||[]).map(id=>fieldPortalPersonName(data,id)).join(', '))+'</span><b>'+esc(entry.arrival||'')+(entry.departure?' → '+esc(entry.departure):' · en cours')+'</b></div>').join('')||'<p class="subtle">Aucun pointage visible aujourd’hui.</p>';
-  const tasks=(data.tasks||[]).map(task=>fieldPortalTaskHtml(task,data)).join('')||'<p class="subtle">Aucune tâche visible.</p>';
+  const activeTasks=(data.tasks||[]).filter(task=>task.status!=='done'),doneTasks=(data.tasks||[]).filter(task=>task.status==='done');
+  const tasks=(activeTasks.map(task=>fieldPortalTaskHtml(task,data)).join('')||'<p class="subtle">Aucune étape à faire.</p>')+(doneTasks.length?'<details><summary>'+doneTasks.length+' étape(s) terminée(s)</summary>'+doneTasks.map(task=>fieldPortalTaskHtml(task,data)).join('')+'</details>':'');
   const notes=(data.notes||[]).map(fieldPortalNoteHtml).join('')||'<p class="subtle">Aucune remarque terrain.</p>';
   const materials=(data.materials||[]).map(item=>'<div class="detail-row"><span>'+esc(item.name)+'</span><b>'+item.delivered+'/'+item.quantity+' '+esc(item.unit||'')+'</b></div>').join('')||'<p class="subtle">Aucun besoin matériel renseigné.</p>';
   const assets=(data.assets||[]).map(item=>'<article class="field-card"><strong>'+esc(item.name)+'</strong><small>'+esc([item.group,item.condition,item.attached].filter(Boolean).join(' · '))+'</small>'+(item.issues||[]).map(issue=>'<p class="notice">'+esc(issue.severity+' · '+issue.description)+'</p>').join('')+'</article>').join('')||'<p class="subtle">Aucun matériel affecté visible.</p>';
@@ -78,12 +100,13 @@ function fieldPortalPanel(projectId){
   const quotes=(data.quotes||[]).map(quote=>fieldPortalQuoteHtml(quote,data)).join('')||'<p class="subtle">Aucun devis technique autorisé.</p>';
   const alerts=(data.notifications||[]).map(item=>'<div class="notice"><strong>'+esc(item.title)+'</strong> · '+esc(item.text)+'</div>').join('');
   return '<section class="panel field-portal" data-field-portal>'+
-    '<div class="panel-head"><div><p class="eyebrow">TERRAIN · '+esc(data.currentUser.role||'')+'</p><h2>'+esc(project.name||'Chantier')+'</h2><span>'+esc(project.reference||'')+(addressText?' · '+esc(addressText):'')+'</span></div><span class="badge green">Serveur</span></div>'+
+    '<div class="panel-head"><div><p class="eyebrow">TERRAIN · '+esc(({OWNER:'Patron',WORKER:'Ouvrier',TEAM_LEAD:'Chef d’équipe',SECRETARY:'Administration',ACCOUNTING:'Comptabilité'})[String(data.currentUser.role||'').toUpperCase()]||data.currentUser.role||'')+'</p><h2>'+esc(project.name||'Chantier')+'</h2><span>'+esc(project.reference||'')+(addressText?' · '+esc(addressText):'')+'</span></div><div class="field-actions"><span class="badge">'+esc(navigator.onLine===false?'Hors ligne':'Journée du '+String(data.date||new Date().toLocaleDateString('fr-CA')))+' </span><button class="btn ghost" data-field-refresh onclick="loadFieldPortal('+fieldPortalInline(projectId)+',true)">Actualiser le terrain</button></div></div>'+
     (alerts?'<div class="field-alerts">'+alerts+'</div>':'')+
     '<div class="field-actions field-primary-actions">'+topActions.join('')+'</div>'+
+    '<p class="subtle" role="status" data-field-queue data-project-id="'+esc(projectId)+'" data-field-scope="'+esc(fieldPortalScope())+'">Vérification des notes en attente…</p>'+
     '<div class="field-portal-grid">'+
       fieldPortalGroup('Équipe du jour','<div class="field-chips">'+members+'</div><div class="field-time-list">'+timeRows+'</div>',{open:true})+
-      fieldPortalGroup('Tâches','<div class="field-stack">'+tasks+'</div>')+
+      fieldPortalGroup('Étapes du chantier','<div class="field-stack">'+tasks+'</div>',{open:true})+
       fieldPortalGroup('Remarques & photos',photos+'<div class="field-stack">'+notes+'</div>')+
       fieldPortalGroup('Matériaux',materials)+
       fieldPortalGroup('Matériel sur chantier',assignmentMeans+'<div class="field-stack">'+assets+'</div>')+
@@ -91,17 +114,36 @@ function fieldPortalPanel(projectId){
       fieldPortalGroup('Devis technique','<div class="field-stack">'+quotes+'</div>',{wide:true})+
     '</div></section>';
 }
-async function loadFieldPortal(projectId,force=false){
+async function loadFieldPortal(projectId,force=false,{quiet=false}={}){
   const key=String(projectId||'');if(!key)return;
-  const current=fieldPortalState.get(key);if(!force&&(current?.status==='loading'||current?.status==='ready'))return;
-  fieldPortalState.set(key,{status:'loading'});
-  try{fieldPortalState.set(key,{status:'ready',data:await serverJson('/api/projects/'+encodeURIComponent(key)+'/field-portal')})}
-  catch(error){fieldPortalState.set(key,{status:'error',error:error.message||'Portail terrain indisponible.'})}
-  if(typeof render==='function'&&view==='jobWorkspace'&&String(currentJobId||'')===key)render();
+  const scope=fieldPortalScope(),current=fieldPortalState.get(key);
+  const pending=fieldPortalRequests.get(key);if(pending?.scope===scope){if(!force||quiet)return pending.promise;await pending.promise;if(scope===fieldPortalScope())return loadFieldPortal(key,true,{quiet});return;}
+  if(!force&&current?.scope===scope&&current.status==='ready')return;
+  if(current?.scope!==scope)fieldPortalState.delete(key);
+  if(!quiet&&current?.scope!==scope)fieldPortalState.set(key,{status:'loading',scope});
+  const request={scope};fieldPortalRequests.set(key,request);
+  request.promise=(async()=>{
+    try{
+      const data=await serverJson('/api/projects/'+encodeURIComponent(key)+'/field-portal');
+      if(scope!==fieldPortalScope()||fieldPortalRequests.get(key)!==request)return;
+      // A background read must never replace a form or a checklist mid-edit.
+      if(quiet&&fieldPortalBusy())return;
+      const changed=current?.scope!==scope||current?.status!=='ready'||fieldPortalComparable(current.data)!==fieldPortalComparable(data);
+      fieldPortalState.set(key,{status:'ready',data,scope});
+      if(changed)fieldPortalPaint(key);
+    }catch(error){
+      if(scope!==fieldPortalScope()||fieldPortalRequests.get(key)!==request)return;
+      fieldPortalState.set(key,{status:'error',error:error.message||'Portail terrain indisponible.',scope});
+      if(!quiet||!fieldPortalBusy())fieldPortalPaint(key);
+    }finally{if(fieldPortalRequests.get(key)===request)fieldPortalRequests.delete(key)}
+  })();
+  return request.promise;
 }
 async function fieldPortalAction(action,projectId){
+  fieldPortalActions++;
   try{await action();await loadFieldPortal(projectId,true);if(typeof toast==='function')toast('Enregistré.')}
   catch(error){if(typeof toast==='function')toast(error.message||'Action refusée.');else alert(error.message||'Action refusée.')}
+  finally{fieldPortalActions--}
 }
 async function fieldPortalClockIn(projectId){
   const data=fieldPortalState.get(String(projectId))?.data,personId=data?.currentUser?.personId,assignment=(data?.team?.assignments||[]).find(item=>(item.people||[]).map(String).includes(String(personId)));
@@ -200,34 +242,67 @@ async function fieldPortalSubmitStockConsume(event){
   finally{button.disabled=false}
 }
 function fieldPortalOpenNote(projectId){
-  fieldPortalDialog('<form class="stack" onsubmit="fieldPortalSubmitNote(event)"><h2>Remarque chantier</h2><input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Remarque<textarea name="text" rows="4"></textarea></label><label>Photos<input type="file" name="photos" accept="image/*" multiple></label><button class="btn" type="submit">Enregistrer</button></form>');
+  fieldPortalDialog('<form class="stack" data-sx-managed-save="true" data-sx-draft-identity="field-note-'+esc(projectId)+'" onsubmit="fieldPortalSubmitNote(event)"><h2>Remarque chantier</h2><input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Remarque<textarea name="text" rows="4"></textarea></label><label>Photos<input type="file" name="photos" accept="image/*" multiple></label><p class="notice" role="status" data-field-save-status hidden></p><button class="btn" type="submit">Enregistrer</button></form>');
 }
 function fieldPortalOpenProblem(projectId){
-  fieldPortalDialog('<form class="stack" onsubmit="fieldPortalSubmitProblem(event)"><h2>Signaler un problème</h2><input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Catégorie<select name="category"><option value="equipment">Matériel cassé</option><option value="materials">Manque de matériaux</option><option value="safety">Sécurité</option><option value="site_error">Erreur chantier</option><option value="technical">Problème technique</option><option value="other">Autre</option></select></label><label>Commentaire<textarea name="comment" rows="4" required></textarea></label><label>Photos<input type="file" name="photos" accept="image/*" multiple></label><button class="btn" type="submit">Signaler</button></form>');
+  fieldPortalDialog('<form class="stack" data-sx-managed-save="true" data-sx-draft-identity="field-problem-'+esc(projectId)+'" onsubmit="fieldPortalSubmitProblem(event)"><h2>Signaler un problème</h2><input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Catégorie<select name="category"><option value="equipment">Matériel cassé</option><option value="materials">Manque de matériaux</option><option value="safety">Sécurité</option><option value="site_error">Erreur chantier</option><option value="technical">Problème technique</option><option value="other">Autre</option></select></label><label>Commentaire<textarea name="comment" rows="4" required></textarea></label><label>Photos<input type="file" name="photos" accept="image/*" multiple></label><p class="notice" role="status" data-field-save-status hidden></p><button class="btn" type="submit">Signaler</button></form>');
 }
 function fieldPortalOpenTask(projectId){
   const data=fieldPortalState.get(String(projectId))?.data,members=(data?.team?.members||[]).filter(item=>item.userId);
   const options='<option value="">Non attribuée</option>'+members.map(item=>'<option value="'+esc(item.userId)+'">'+esc(item.name)+'</option>').join('');
-  fieldPortalDialog('<form class="stack" onsubmit="fieldPortalSubmitTask(event)"><h2>Nouvelle tâche</h2><input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Titre<input name="title" required></label><label>Description<textarea name="description" rows="3"></textarea></label><label>Responsable<select name="assignedTo">'+options+'</select></label><label>Priorité<select name="priority"><option value="normal">Normale</option><option value="high">Haute</option><option value="urgent">Urgente</option><option value="low">Basse</option></select></label><label>Échéance<input name="dueAt" type="date"></label><label>Checklist — une ligne par élément<textarea name="checklist" rows="4"></textarea></label><label>Matériaux nécessaires — une ligne par matériau<textarea name="materials" rows="3"></textarea></label><button class="btn" type="submit">Créer</button></form>');
+  fieldPortalDialog('<form class="stack" data-sx-managed-save="true" data-sx-draft-identity="field-task-'+esc(projectId)+'" onsubmit="fieldPortalSubmitTask(event)"><h2>Nouvelle étape du chantier</h2>'+fieldPreparationTemplatesHtml()+'<input type="hidden" name="projectId" value="'+esc(projectId)+'"><label>Titre<input name="title" required></label><label>Description<textarea name="description" rows="3"></textarea></label><label>Responsable<select name="assignedTo">'+options+'</select></label><label>Priorité<select name="priority"><option value="normal">Normale</option><option value="high">Haute</option><option value="urgent">Urgente</option><option value="low">Basse</option></select></label><label>Échéance<input name="dueAt" type="date"></label><label>Checklist — une ligne par élément<textarea name="checklist" rows="4"></textarea></label><label>Matériaux nécessaires — une ligne par matériau<textarea name="materials" rows="3"></textarea></label><p class="notice" role="status" data-field-save-status hidden></p><button class="btn" type="submit">Créer l’étape</button></form>');
 }
-async function fieldPortalUploadPhotos(projectId,files,prefix){
+async function fieldPortalUploadPhotos(projectId,files,prefix,assertCurrent=()=>{}){
   const ids=[];let index=0;
-  for(const file of files){if(!file||!file.size)continue;const form=new FormData();form.append('file',file);form.append('title',file.name);form.append('operationKey',prefix+'-photo-'+index++);const result=await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/field-photos',{method:'POST',body:form});ids.push(result.document.id)}
+  for(const file of files){if(!file||!file.size)continue;assertCurrent();const form=new FormData();form.append('file',file);form.append('title',file.name);form.append('operationKey',prefix+'-photo-'+index++);const result=await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/field-photos',{method:'POST',body:form});ids.push(result.document.id)}
   return ids;
 }
+const fieldPortalOperations=new Map();
+function fieldPortalOperationKey(kind,scope,data){
+ const signature=JSON.stringify([kind,scope,...Array.from(data.entries()).map(([name,value])=>[name,typeof value==='string'?value:[value.name,value.size,value.lastModified]])]);
+ if(!fieldPortalOperations.has(signature)){fieldPortalOperations.set(signature,fieldPortalKey(kind));if(fieldPortalOperations.size>64)fieldPortalOperations.delete(fieldPortalOperations.keys().next().value)}
+ return fieldPortalOperations.get(signature);
+}
+async function fieldPortalSaveForm(event,kind,perform){
+ event.preventDefault();
+ const form=event.currentTarget;if(form.dataset.fieldSaving==='true')return;
+ const data=new FormData(form),projectId=String(data.get('projectId')||''),scope=fieldPortalScope(),record=fieldPortalState.get(projectId);
+ const capability={note:'createNotes',problem:'reportProblems',task:'manageTasks'}[kind];
+ const current=()=>scope===fieldPortalScope()&&form.isConnected&&document.querySelector('#modal')?.open;
+ const status=form.querySelector('[data-field-save-status]');
+ if(!record||record.scope!==scope||!record.data?.capabilities?.[capability]){if(status){status.hidden=false;status.textContent='Actualisez le chantier pour confirmer vos accès.'}return}
+ const prefix=fieldPortalOperationKey(kind,scope,data),controls=Array.from(form.querySelectorAll('button,input,select,textarea')).map(node=>[node,node.disabled]);
+ const assertCurrent=()=>{if(!current())throw Object.assign(Error('Le formulaire ou l’entreprise a changé. Aucune nouvelle action n’a été envoyée.'),{name:'AbortError'})};
+ globalThis.sxSaveFormDraft?.(form);
+ form.dataset.fieldSaving='true';fieldPortalActions++;controls.forEach(([node])=>node.disabled=true);if(status){status.hidden=false;status.textContent='Enregistrement en cours…'}
+ try{
+  await perform({data,projectId,prefix,assertCurrent});
+  if(!current())return;
+  globalThis.sxAcknowledgeForm?.(form);closeModal();
+  if(scope===fieldPortalScope())await loadFieldPortal(projectId,true);
+  if(scope===fieldPortalScope()&&typeof toast==='function')toast('Enregistré.');
+ }catch(error){
+  if(current()){if(status){status.hidden=false;status.textContent=error.message||'L’enregistrement n’a pas été confirmé. Votre saisie est conservée.'}else if(typeof toast==='function')toast(error.message||'Enregistrement refusé.')}
+ }finally{fieldPortalActions--;form.dataset.fieldSaving='false';controls.forEach(([node,disabled])=>node.disabled=disabled)}
+}
 async function fieldPortalSubmitNote(event){
-  event.preventDefault();const form=event.currentTarget,data=new FormData(form),projectId=String(data.get('projectId')),prefix=fieldPortalKey('note');
-  try{const photoDocumentIds=await fieldPortalUploadPhotos(projectId,data.getAll('photos'),prefix);await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/notes',{method:'POST',body:JSON.stringify({text:String(data.get('text')||''),visibility:'Équipe et patron',photoDocumentIds,operationKey:prefix+'-note'})});document.querySelector('#modal')?.close();await loadFieldPortal(projectId,true)}
-  catch(error){if(typeof toast==='function')toast(error.message||'Remarque refusée.')}
+ return fieldPortalSaveForm(event,'note',async({data,projectId,prefix,assertCurrent})=>{
+  const photoDocumentIds=await fieldPortalUploadPhotos(projectId,data.getAll('photos'),prefix,assertCurrent);assertCurrent();
+  await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/notes',{method:'POST',body:JSON.stringify({text:String(data.get('text')||''),visibility:'Équipe et patron',photoDocumentIds,operationKey:prefix+'-note'})});
+ });
 }
 async function fieldPortalSubmitProblem(event){
-  event.preventDefault();const form=event.currentTarget,data=new FormData(form),projectId=String(data.get('projectId')),prefix=fieldPortalKey('problem');
-  try{const photoDocumentIds=await fieldPortalUploadPhotos(projectId,data.getAll('photos'),prefix);await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/problems',{method:'POST',body:JSON.stringify({category:String(data.get('category')),comment:String(data.get('comment')||''),photoDocumentIds,operationKey:prefix+'-problem'})});document.querySelector('#modal')?.close();await loadFieldPortal(projectId,true)}
-  catch(error){if(typeof toast==='function')toast(error.message||'Signalement refusé.')}
+ return fieldPortalSaveForm(event,'problem',async({data,projectId,prefix,assertCurrent})=>{
+  const photoDocumentIds=await fieldPortalUploadPhotos(projectId,data.getAll('photos'),prefix,assertCurrent);assertCurrent();
+  await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/problems',{method:'POST',body:JSON.stringify({category:String(data.get('category')),comment:String(data.get('comment')||''),photoDocumentIds,operationKey:prefix+'-problem'})});
+ });
 }
 async function fieldPortalSubmitTask(event){
-  event.preventDefault();const data=new FormData(event.currentTarget),projectId=String(data.get('projectId')),checklist=String(data.get('checklist')||'').split('\n').map(value=>value.trim()).filter(Boolean).map((label,index)=>({id:'check-'+index,label,done:false})),materials=String(data.get('materials')||'').split('\n').map(value=>value.trim()).filter(Boolean).map(name=>({name}));
-  await fieldPortalAction(()=>serverJson('/api/projects/'+encodeURIComponent(projectId)+'/tasks',{method:'POST',body:JSON.stringify({title:String(data.get('title')||''),description:String(data.get('description')||''),assignedTo:String(data.get('assignedTo')||''),priority:String(data.get('priority')||'normal'),dueAt:String(data.get('dueAt')||''),checklist,materials,operationKey:fieldPortalKey('task')})}),projectId);document.querySelector('#modal')?.close();
+ return fieldPortalSaveForm(event,'task',async({data,projectId,prefix,assertCurrent})=>{
+  const checklist=String(data.get('checklist')||'').split('\n').map(value=>value.trim()).filter(Boolean).map((label,index)=>({id:'check-'+index,label,done:false})),materials=String(data.get('materials')||'').split('\n').map(value=>value.trim()).filter(Boolean).map(name=>({name}));
+  assertCurrent();
+  await serverJson('/api/projects/'+encodeURIComponent(projectId)+'/tasks',{method:'POST',body:JSON.stringify({title:String(data.get('title')||''),description:String(data.get('description')||''),assignedTo:String(data.get('assignedTo')||''),priority:String(data.get('priority')||'normal'),dueAt:String(data.get('dueAt')||''),checklist,materials,operationKey:prefix})});
+ });
 }
 async function fieldPortalEditNote(noteId){
   const entry=[...fieldPortalState.entries()].find(([,value])=>value.data?.notes?.some(note=>String(note.id)===String(noteId)));if(!entry)return;const note=entry[1].data.notes.find(item=>String(item.id)===String(noteId)),text=prompt('Modifier la remarque',note.text||'');if(text===null)return;
@@ -241,9 +316,41 @@ async function fieldPortalDeleteNote(noteId){
 const renderBeforeFieldPortal=render;
 render=function(){
   renderBeforeFieldPortal();
-  if(view!=='jobWorkspace'||!currentJobId)return;
+  if(view!=='jobWorkspace'||!currentJobId){fieldPortalVisibleKey='';return;}
   const main=document.querySelector('#main');if(!main||main.querySelector('[data-field-portal]'))return;
   const key=String(currentJobId),hub=main.querySelector('[data-project-hub]'),html=fieldPortalPanel(key);
   if(hub)hub.insertAdjacentHTML('beforebegin',html);else main.insertAdjacentHTML('beforeend',html);
-  if(!fieldPortalState.has(key))queueMicrotask(()=>loadFieldPortal(key));
+  const visibleKey=typeof jobWorkspaceTab==='string'&&jobWorkspaceTab==='field'?fieldPortalScope()+'|'+key:'';
+  const returned=visibleKey&&visibleKey!==fieldPortalVisibleKey;fieldPortalVisibleKey=visibleKey;
+  if(!fieldPortalState.has(key)||fieldPortalState.get(key)?.scope!==fieldPortalScope())queueMicrotask(()=>loadFieldPortal(key));
+  else if(returned)queueMicrotask(()=>loadFieldPortal(key,true,{quiet:true}));
 };
+const fieldPreparationTemplates=Object.freeze({
+ toiture:{label:'Préparation toiture',title:'Préparer le chantier de toiture',description:'Préparation à adapter au dossier, au métré et aux conditions du chantier. Les quantités et les choix de produits restent à valider.',checklist:['Relire le devis, les plans et le métré validés','Vérifier les accès, les protections prévues et les contraintes du site','Confirmer l’équipe, le créneau et les moyens nécessaires','Vérifier les matériaux disponibles et les livraisons attendues','Préparer les documents et les consignes à transmettre'],materials:['Couverture à confirmer selon le devis','Sous-toiture, bois et accessoires à vérifier sur le métré','Fixations et finitions à confirmer']},
+ renovation:{label:'Préparation rénovation',title:'Préparer le chantier de rénovation',description:'Préparation à relire avant planification et commande. Adapter les étapes aux travaux convenus avec le client.',checklist:['Vérifier le périmètre du devis et les documents disponibles','Confirmer l’accès au bâtiment et les contraintes d’occupation','Organiser les interventions et les moyens nécessaires','Rapprocher les besoins du stock et des livraisons','Préparer un état initial et les consignes de chantier'],materials:[]},
+ intervention:{label:'Intervention courte',title:'Préparer l’intervention',description:'Préparation d’une intervention à confirmer avant le départ.',checklist:['Confirmer le besoin et le contact sur place','Vérifier le rendez-vous et l’accès','Préparer l’outillage et les consommables utiles','Prévoir les photos et le compte rendu de fin d’intervention'],materials:[]}
+});
+function fieldPreparationTemplatesHtml(){
+ return '<details class="preparation-search"><summary>Partir d’un modèle de préparation</summary><label>Modèle<select data-field-template><option value="">Choisir un modèle</option>'+Object.entries(fieldPreparationTemplates).map(([id,item])=>'<option value="'+esc(id)+'">'+esc(item.label)+'</option>').join('')+'</select></label><button type="button" class="btn" onclick="applyFieldPreparationTemplate(this.form)">Ajouter au brouillon</button><p class="subtle">Relisez et adaptez la proposition avant de créer l’étape. Les commandes et les réservations restent à effectuer dans leurs écrans.</p></details>';
+}
+function applyFieldPreparationTemplate(form){
+ const template=fieldPreparationTemplates[form.querySelector('[data-field-template]')?.value];if(!template)return;
+ const additions={title:template.title,description:template.description,checklist:template.checklist.join('\n'),materials:template.materials.join('\n')};
+ for(const [name,value] of Object.entries(additions)){
+  const field=form.elements.namedItem(name);if(!field||!value)continue;
+  if(name==='title'){if(!field.value.trim())field.value=value}
+  else if(name==='description'){if(!field.value.includes(value))field.value=[field.value.trim(),value].filter(Boolean).join('\n\n')}
+  else {const lines=new Set(field.value.split('\n').map(line=>line.trim()).filter(Boolean));value.split('\n').forEach(line=>lines.add(line));field.value=Array.from(lines).join('\n')}
+  field.dispatchEvent(new Event('input',{bubbles:true}));
+ }
+ form.elements.namedItem('title')?.focus();if(typeof toast==='function')toast('Modèle ajouté au brouillon. Relisez les étapes et les matériaux.');
+}
+function fieldPortalQueueStatus(items){
+ const scope=fieldPortalScope();
+ document.querySelectorAll('[data-field-queue]').forEach(node=>{
+  if(node.dataset.fieldScope!==scope)return;
+  const rows=items.filter(item=>String(item.projectId)===node.dataset.projectId),blocked=rows.filter(item=>item.status==='blocked').length,pending=rows.length-blocked;
+  node.textContent=rows.length?[pending?pending+' note(s) à envoyer':'',blocked?blocked+' note(s) à vérifier':''].filter(Boolean).join(' · '):'Aucune note en attente d’envoi pour ce chantier.';
+ });
+}
+globalThis.socleOffline?.onQueueChange?.(fieldPortalQueueStatus);

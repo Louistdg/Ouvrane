@@ -56,8 +56,8 @@ export async function timeEntriesMonthlyRoute(request,url,env,ctx,helpers){
   let totalMinutes=0,completedEntries=0,openEntries=0,pendingCorrections=0;
   for(const row of visible){
     const rowCorrections=correctionsByEntry.get(row.id)||[];
-    pendingCorrections+=rowCorrections.filter(item=>item.status==='pending').length;
-    const rowPeople=timeEntryPeople(row);
+    pendingCorrections+=rowCorrections.filter(item=>item.status==='pending'&&(!onlyOwn||!item.person_id||String(item.person_id)===String(personId))).length;
+    const rowPeople=timeEntryPeople(row).filter(id=>!onlyOwn||String(id)===String(personId));
     for(const memberId of rowPeople){
       if(!byPerson.has(memberId))byPerson.set(memberId,{personId:memberId,name:peopleNames.get(memberId)||memberId,minutes:0,entries:0,projects:new Map()});
       byPerson.get(memberId).entries++;
@@ -79,7 +79,7 @@ export async function timeEntriesMonthlyRoute(request,url,env,ctx,helpers){
   const accessibleTeamIds=new Set();
   if(flags.owner||flags.viewAll)for(const team of state.teams||[])accessibleTeamIds.add(String(team.id));
   else if(flags.viewTeam)for(const team of state.teams||[])if(actorCanUseTeam(flags,state,personId,team.id))accessibleTeamIds.add(String(team.id));
-  const visiblePeople=new Set(visible.flatMap(row=>timeEntryPeople(row)));
+  const visiblePeople=new Set(visible.flatMap(row=>timeEntryPeople(row)).filter(id=>!onlyOwn||String(id)===String(personId)));
   if(personId)visiblePeople.add(String(personId));
   if(flags.owner)for(const person of state.people||[])visiblePeople.add(String(person.id));
   else for(const team of state.teams||[])if(accessibleTeamIds.has(String(team.id)))for(const member of team.members||[])visiblePeople.add(String(member));

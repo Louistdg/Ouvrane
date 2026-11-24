@@ -100,7 +100,8 @@ function draftKey(form){
   return form.dataset.sxDraftKey;
 }
 function draftFields(form){
-  return fields(form).filter(function(field){return field.name&&!['password','file','hidden'].includes(field.type);});
+  var candidates=form.dataset.sxManagedSave==='true'?Array.from(form.querySelectorAll('input,select,textarea')):fields(form);
+  return candidates.filter(function(field){return field.name&&!['password','file','hidden','submit','button','reset'].includes(field.type);});
 }
 function saveDraft(form,allowClosed){
   if(!form.isConnected||!form.closest(allowClosed?'#modal,dialog':'#modal[open],dialog[open]'))return;
@@ -147,7 +148,7 @@ function scheduleDraft(form){
     if(!form.isConnected||form.dataset.sxDirty!=='1'||!form.closest('#modal[open],dialog[open]'))return;
     saveDraft(form);
     var state=stateNode(form);
-    if(state){state.hidden=false;state.textContent='Brouillon enregistré';}
+    if(state){state.hidden=false;state.textContent='Brouillon conservé dans cet onglet';state.title='Le brouillon reste disponible dans cet onglet jusqu’au rechargement de la page.';}
   },600));
 }
 function enhanceForm(form){
@@ -191,4 +192,5 @@ window.addEventListener('beforeunload',function(event){
 });
 globalThis.sxValidateForm=function(form){return fields(form).every(function(field){field.dataset.sxTouched='1';return validateField(field,true)})};
 globalThis.sxAcknowledgeForm=acknowledgeForm;
+globalThis.sxSaveFormDraft=function(form){if(!form)return;trackDirty(form);saveDraft(form,true)};
 })();

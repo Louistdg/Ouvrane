@@ -269,6 +269,7 @@ function iaAOwnerWeekEvents(date){
   return all.filter(function(item){var key=String(item.title||'')+'|'+String(item.kind||'');if(!item.title||seen.has(key))return false;seen.add(key);return true}).slice(0,3);
 }
 function iaAOwnerWeekView(){
+  if(typeof globalThis.personalOwnerCalendarHtml==='function')return globalThis.personalOwnerCalendarHtml();
   return '<section class="ia-owner-week" aria-label="Votre calendrier du lundi au vendredi"><header><div><p class="eyebrow">CALENDRIER</p><h2>Votre semaine</h2></div><button class="link" type="button" onclick="navigate(\'planning\')">Ouvrir Planning</button></header><div class="ia-owner-week-days">'+iaAOwnerWeekRange().map(function(date,index){var dayDate=new Date(date+'T12:00:00'),events=iaAOwnerWeekEvents(date);return '<article class="ia-owner-week-day" data-date="'+date+'"><h3><span>'+['Lun.','Mar.','Mer.','Jeu.','Ven.'][index]+'</span><time>'+dayDate.toLocaleDateString('fr-BE',{day:'numeric',month:'short'})+'</time></h3><ul>'+ (events.length?events.map(function(item){return '<li><small>'+iaAEscape(item.kind)+'</small><strong>'+iaAEscape(item.title)+'</strong></li>'}).join(''):'<li class="is-empty">Rien de prévu</li>')+'</ul></article>'}).join('')+'</div></section>';
 }
 function iaAOwnerMessagesPanel(){
@@ -279,6 +280,7 @@ function iaAOwnerMessagesPanel(){
   return '<section class="ia-owner-panel ia-owner-messages"><header><div><p class="eyebrow">ÉQUIPE</p><h2>Messages récents</h2></div><button class="link" type="button" onclick="navigate(\'messages\')">Ouvrir les messages</button></header><div class="ia-owner-panel-body">'+body+'</div></section>';
 }
 function iaAOwnerTasksPanel(){
+  if(typeof globalThis.personalOwnerFollowupHtml==='function')return globalThis.personalOwnerFollowupHtml();
   var state=iaAOwnerAgendaState,key=iaAOwnerAgendaKey(),local=iaAOpenTasks(),remote=state.key===key?iaASafeArray(state.tasks):[],journal=state.key===key?iaASafeArray(state.fieldJournal):[];
   var rows=[],seen=new Set();
   journal.forEach(function(item){var id='field-journal:'+String(item.id||'');if(seen.has(id))return;seen.add(id);rows.push({title:String(item.category||'Problème')+' · '+String(item.projectName||'Chantier'),date:String(item.author||'Équipe')+' · '+new Date(item.createdAt).toLocaleString('fr-BE'),status:'À traiter',projectId:String(item.projectId||'')})});
@@ -687,15 +689,42 @@ function iaAPurchaseJob(order){
   var id=order&&(order.job!=null?order.job:order.projectId);
   return typeof jobs!=='undefined'&&Array.isArray(jobs)?jobs.find(function(job){return String(job.id)===String(id)}):null;
 }
+function iaAPurchaseCan(permission){
+  var access=globalThis.socleCurrentAccess||{};
+  return !iaAPreviewRequested()&&Boolean(access.owner||access.roleCode==='OWNER'||(access.permissions||[]).includes(permission));
+}
+function iaAPurchaseContext(){
+  var access=globalThis.socleCurrentAccess||{};
+  return JSON.stringify([String(typeof activeSocleOrganizationId!=='undefined'?activeSocleOrganizationId:''),access.userId,access.roleCode,Boolean(access.owner),(access.permissions||[]).slice().sort(),iaAPreviewRequested()]);
+}
+async function iaAConfirmPurchase(id){
+  var order=typeof purchaseOrders!=='undefined'?iaAFindByString(purchaseOrders,id):null,detail=document.querySelector('[data-purchase-order-detail]');
+  if(!order||!detail||detail.dataset.purchaseOrderDetail!==String(id)||!iaAPurchaseCan('purchase_orders.manage'))return;
+  var key=iaAPurchaseContext(),owns=function(){return detail.isConnected&&iaAPurchaseContext()===key&&document.querySelector('[data-purchase-order-detail]')===detail},button=detail.querySelector('[data-purchase-confirm]'),status=detail.querySelector('[data-purchase-confirm-status]');
+  if(!button||button.disabled)return;
+  button.disabled=true;
+  try{
+    if(!order.confirmationFingerprint){
+      var data=await serverJson('/api/purchase-orders');if(!owns())return;
+      purchaseOrders=Array.isArray(data.orders)?data.orders:[];iaAShowPurchaseOrder(id);toast('Commande actualisée. Vérifiez ses lignes avant de confirmer.');return;
+    }
+    if(!confirm('Confirmer cette commande dans OUVRANE ? Aucun envoi au fournisseur ne sera effectué.')){button.disabled=false;return}
+    detail.dataset.confirmationKey=detail.dataset.confirmationKey||'purchase-confirm-'+crypto.randomUUID();
+    await serverJson('/api/purchase-orders/'+encodeURIComponent(id)+'/confirm',{method:'POST',body:JSON.stringify({operationKey:detail.dataset.confirmationKey,expectedFingerprint:order.confirmationFingerprint})});
+    if(!owns())return;await loadWorkspace();if(!owns())return;
+    iaAShowPurchaseOrder(id);toast('Commande confirmée dans OUVRANE, sans transmission externe.');
+  }catch(error){if(owns()){status.textContent=error.message||'Confirmation refusée.';button.disabled=false}}
+}
 function iaAShowPurchaseOrder(id){
   var order=typeof purchaseOrders!=='undefined'?iaAFindByString(purchaseOrders,id):null;if(!order||typeof modal!=='function')return;
   var supplier=iaAPurchaseSupplier(order),job=iaAPurchaseJob(order),lines=iaASafeArray(order.lines),received=lines.reduce(function(sum,line){return sum+Number(line.received||0)},0),ordered=lines.reduce(function(sum,line){return sum+Number(line.quantity||0)},0);
   var lineHtml=lines.length?'<div class="ia-detail-list">'+lines.map(function(line){var qty=Number(line.quantity||0),got=Number(line.received||0),remaining=Math.max(0,qty-got);return '<div class="ia-detail-line"><span><strong>'+iaAEscape(line.label||line.reference||'Article')+'</strong><small>'+iaAEscape(line.reference||'')+'</small></span><span><small>Commandé</small><b>'+iaAFormatQuantity(qty)+' '+iaAEscape(line.unit||'')+'</b></span><span><small>Reçu</small><b>'+iaAFormatQuantity(got)+' '+iaAEscape(line.unit||'')+'</b></span><span><small>Reste</small><b>'+iaAFormatQuantity(remaining)+' '+iaAEscape(line.unit||'')+'</b></span><span><small>Prix HTVA</small><b>'+iaAMoneySafe(Number(line.unitPrice||0))+'</b></span></div>'}).join('')+'</div>':iaAState('empty','Aucune ligne','Cette commande ne contient aucune ligne.');
-  var canReceive=!['reçue','annulée','cancelled'].includes(String(order.status||'').toLocaleLowerCase('fr-BE'));
-  modal('Commande · '+String(order.number||order.id),'<div class="ia-detail-grid"><div><small>Fournisseur</small><strong>'+iaAEscape(supplier&&(supplier.company||supplier.name)||'—')+'</strong></div><div><small>Chantier</small><strong>'+iaAEscape(job&&(job.reference||job.name)||'Dépôt / frais généraux')+'</strong></div><div><small>Date</small><strong>'+iaAEscape(iaADate(order.date))+'</strong></div><div><small>Prévue</small><strong>'+iaAEscape(iaADate(order.expectedDate))+'</strong></div><div><small>Statut</small><strong>'+iaAEscape(order.status||'—')+'</strong></div><div><small>Total HTVA</small><strong>'+iaAMoneySafe(iaAPurchaseNet(order))+'</strong></div></div><div class="ia-detail-summary"><strong>'+lines.length+' ligne(s)</strong><span>'+received+' reçu(s) sur '+ordered+' commandé(s)</span></div>'+lineHtml+'<div class="modal-actions">'+(canReceive?'<button class="btn primary" type="button" onclick="iaAReceivePurchase(\''+iaAEscape(String(order.id)).replace(/'/g,'&#39;')+'\')">Réceptionner</button>':'')+'</div>');
+  var status=String(order.status||'').toLocaleLowerCase('fr-BE'),canConfirm=status==='brouillon'&&iaAPurchaseCan('purchase_orders.manage'),canReceive=['commandée','partiellement reçue'].includes(status)&&iaAPurchaseCan('deliveries.receive');
+  modal('Commande · '+String(order.number||order.id),'<section data-purchase-order-detail="'+iaAEscape(order.id)+'"><div class="ia-detail-grid"><div><small>Fournisseur</small><strong>'+iaAEscape(supplier&&(supplier.company||supplier.name)||'—')+'</strong></div><div><small>Chantier</small><strong>'+iaAEscape(job&&(job.reference||job.name)||'Dépôt / frais généraux')+'</strong></div><div><small>Date</small><strong>'+iaAEscape(iaADate(order.date))+'</strong></div><div><small>Prévue</small><strong>'+iaAEscape(iaADate(order.expectedDate))+'</strong></div><div><small>Statut</small><strong>'+iaAEscape(order.status||'—')+'</strong></div><div><small>Total HTVA</small><strong>'+iaAMoneySafe(iaAPurchaseNet(order))+'</strong></div></div><div class="ia-detail-summary"><strong>'+lines.length+' ligne(s)</strong><span>'+received+' reçu(s) sur '+ordered+' commandé(s)</span></div>'+lineHtml+'<p data-purchase-confirm-status role="status" aria-live="polite"></p><div class="modal-actions">'+(canConfirm?'<button class="btn primary" type="button" data-purchase-confirm data-id="'+iaAEscape(order.id)+'" onclick="iaAConfirmPurchase(this.dataset.id)">Confirmer la commande</button>':'')+(canReceive?'<button class="btn primary" type="button" onclick="iaAReceivePurchase(\''+iaAEscape(String(order.id)).replace(/'/g,'&#39;')+'\')">Réceptionner</button>':'')+'</div></section>');
 }
 function iaAReceivePurchase(id){
-  var order=typeof purchaseOrders!=='undefined'?iaAFindByString(purchaseOrders,id):null;if(!order||typeof deliveryNoteForm!=='function')return;
+  var order=typeof purchaseOrders!=='undefined'?iaAFindByString(purchaseOrders,id):null;if(!order||typeof deliveryNoteForm!=='function'||!iaAPurchaseCan('deliveries.receive'))return;
+  if(!['commandée','partiellement reçue'].includes(String(order.status||'').toLocaleLowerCase('fr-BE')))return toast('Confirmez la commande avant de réceptionner des articles.');
   if(typeof closeModal==='function')closeModal();deliveryNoteForm(order.id);
 }
 function iaAShowDeliveryNote(id){
@@ -796,6 +825,7 @@ globalThis.iaAOpenOnKey=iaAOpenOnKey;
 globalThis.iaAShowPurchaseOrder=iaAShowPurchaseOrder;
 globalThis.iaAShowDeliveryNote=iaAShowDeliveryNote;
 globalThis.iaAReceivePurchase=iaAReceivePurchase;
+globalThis.iaAConfirmPurchase=iaAConfirmPurchase;
 globalThis.iaAShowStockItem=iaAShowStockItem;
 globalThis.iaAEditStock=iaAEditStock;
 globalThis.iaAMoveStock=iaAMoveStock;
@@ -866,6 +896,7 @@ globalThis.iaAEnhanceOperationalLists=iaAEnhanceOperationalLists;
 
 var iaAInitialHomePending=true,iaALastRenderedView='';
 function iaAOpenRoleHome(role){
+  if(typeof globalThis.socleDeferHomeRender==='function'&&globalThis.socleDeferHomeRender())return;
   if(typeof view!=='undefined')view='home';
   var nav=document.querySelector('#nav');
   if(nav&&typeof tabs2!=='undefined')nav.innerHTML=tabs2.filter(function(tab){return iaAModuleVisible(tab[0])}).map(function(tab){return '<button type="button"'+(tab[0]==='home'?' class="active" aria-current="page"':'')+' onclick="navigate(\''+tab[0]+'\')">'+iaAEscape(tab[1])+'</button>'}).join('');
@@ -922,6 +953,9 @@ globalThis.iaARoleCode=iaARoleCode;
 globalThis.iaARetryWorkerWeatherPlanning=iaARetryWorkerWeatherPlanning;
 globalThis.iaADashboardForRole=iaADashboardForRole;
 globalThis.iaAFinanceModel=iaAFinanceModel;
+// The company attention feed belongs to the owner home only. Compute afresh
+// rather than reusing a model left behind by another account or company.
+globalThis.iaAHomeAlertCount=function(){return iaARoleCode()==='OWNER'?iaAAttentionBuild(iaAAttentionWorkspaceData()).items.length:0};
 globalThis.iaAAttentionBuild=iaAAttentionBuild;
 globalThis.iaAAttentionRender=iaAAttentionRender;
 globalThis.iaAAttentionSetFilter=iaAAttentionSetFilter;

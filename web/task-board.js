@@ -360,6 +360,11 @@ var actionsBeforeTaskBoard=typeof actions==='function'?actions:null;
 if(actionsBeforeTaskBoard){
   actions=function(){
     var html=actionsBeforeTaskBoard.apply(this,arguments);
+    // A later generic-actions renderer can replace the earlier project-task wrapper.
+    // Restore the authorized server list once, before decorating its folder rows.
+    if(typeof serverProjectTaskPanel==='function'&&String(html).indexOf('server-project-tasks')<0){
+      html+=serverProjectTaskPanel();
+    }
     if(String(html).indexOf('data-task-folders-bar')>=0)return html;
     var marker='<div class="section-heading">';
     var at=String(html).indexOf(marker);

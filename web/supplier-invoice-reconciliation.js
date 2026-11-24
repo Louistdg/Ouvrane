@@ -55,14 +55,15 @@ function supplierInvoiceReconciliationAnalyze(expense,orders,deliveries){
 
   const lines=(order.lines||[]).map(line=>{
    const orderLineId=String(line.id);
-   const receivedLines=notes.filter(note=>['Reçue','Avec réserve'].includes(String(note.status||''))).flatMap(note=>note.lines||[]).filter(item=>String(item.orderLineId??item.order_line_id)===orderLineId);
-   const acceptedMilli=receivedLines.filter(item=>item.condition!=='Refusé').reduce((sum,item)=>sum+Math.max(0,Math.round(Number(item.received||0)*1000)),0);
-   const refusedMilli=receivedLines.filter(item=>item.condition==='Refusé').reduce((sum,item)=>sum+Math.max(0,Math.round(Number(item.received||0)*1000)),0);
+   const receivedLines=notes.filter(note=>['Reçue','Avec réserve'].includes(String(note.status||''))).flatMap(note=>(note.lines||[]).filter(item=>String(item.orderLineId??item.order_line_id)===orderLineId).map(item=>({note,item})));
+   const accepted=receivedLines.filter(({item})=>item.condition!=='Refusé'),acceptedMilli=accepted.reduce((sum,{item})=>sum+Math.max(0,Math.round(Number(item.received||0)*1000)),0);
+   const refusedMilli=receivedLines.filter(({item})=>item.condition==='Refusé').reduce((sum,{item})=>sum+Math.max(0,Math.round(Number(item.received||0)*1000)),0);
    const orderedMilli=Math.max(0,Math.round(Number(line.quantity||0)*1000));
    const price=Number(line.unitPrice??line.unit_price);
    return {
-    reference:String(line.reference||''),label:String(line.label||''),unit:String(line.unit||''),
+    orderLineId,reference:String(line.reference||''),label:String(line.label||''),unit:String(line.unit||''),
     orderedMilli,acceptedMilli,refusedMilli,
+    receipts:accepted.map(({note,item})=>({deliveryNoteId:String(note.id),deliveryNumber:String(note.number||note.id),deliveryLineId:String(item.id),acceptedMilli:Math.max(0,Math.round(Number(item.received||0)*1000))})),
     missingMilli:Math.max(0,orderedMilli-acceptedMilli),excessMilli:Math.max(0,acceptedMilli-orderedMilli),
     orderedUnitPriceCents:Number.isFinite(price)?Math.round(price*100):null,
     invoicedMilli:null,invoicedUnitPriceCents:null
@@ -194,9 +195,59 @@ function supplierInvoiceReconciliationRender(expense,result){
     </table></div>
   </section>`;
  }).join('');
- return `${intro}${warning}<p class="help-line">Relevez les références, quantités et prix unitaires sur la facture pour comparer les lignes. Ces valeurs ne sont pas enregistrées : les écarts de réception affichés ne remplacent pas ces données.</p><form onsubmit="event.preventDefault();return false">${candidates}</form><p class="notice">Mode revue : cet écran ne crée aucun rapprochement et ne modifie aucune donnée.</p>`;
+ return `${intro}${warning}<p class="help-line">Relevez les références, quantités et prix unitaires sur la facture pour comparer les lignes. Rien n’est enregistré tant qu’un rapprochement n’est pas confirmé explicitement ; les écarts de réception affichés ne remplacent pas ces données.</p><form onsubmit="event.preventDefault();return false">${candidates}</form><p class="notice">Mode revue assistée : aucune correspondance n’est créée automatiquement. Une validation explicite est nécessaire pour enregistrer un rapprochement traçable.</p>`;
 }
 
+function supplierInvoiceMatchRemainingCents(allocation,matches){
+ const used=(matches||[]).filter(item=>item.status==='active'&&String(item.allocationId)===String(allocation.id)).reduce((sum,item)=>sum+Number(item.matchedCents||0),0);
+ return Math.max(0,Number(allocation.amountCents||0)-used);
+}
+function supplierInvoiceReceiptRemainingMilli(receipt,matches){
+ const used=(matches||[]).filter(item=>item.status==='active'&&String(item.deliveryLineId)===String(receipt.deliveryLineId)).reduce((sum,item)=>sum+Number(item.matchedQuantityMilli||0),0);
+ return Math.max(0,Number(receipt.acceptedMilli||0)-used);
+}
+function supplierInvoiceMatchHistoryHtml(matches){
+ if(!matches?.length)return '<p class="help-line">Aucun rapprochement enregistré pour cette facture.</p>';
+ return '<section class="panel"><div class="panel-head"><h3>Rapprochements enregistrés</h3></div>'+matches.map(item=>'<div class="detail-row"><span><strong>'+reconciliationMoney(item.matchedCents)+'</strong><small>'+reconciliationQuantity(item.matchedQuantityMilli,'')+' · commande '+reconciliationEscape(item.orderId)+' · ligne de réception '+reconciliationEscape(item.deliveryLineId)+'</small></span><span><span class="badge '+(item.status==='active'?'green':'')+'">'+(item.status==='active'?'Actif':'Annulé')+'</span>'+(item.status==='active'?'<button class="link" data-void-supplier-match="'+reconciliationEscape(item.id)+'">Annuler le rapprochement</button>':'')+'</span></div>').join('')+'</section>';
+}
+function enhanceSupplierInvoiceReconciliation(expense,result,allocations,matches){
+ const root=document.querySelector('#modalbody');if(!root||!Array.isArray(allocations)||!Array.isArray(matches))return;
+ root.insertAdjacentHTML('afterbegin',supplierInvoiceMatchHistoryHtml(matches));
+ for(const button of root.querySelectorAll('[data-void-supplier-match]'))button.onclick=()=>voidSupplierInvoiceMatch(expense.id,button.dataset.voidSupplierMatch);
+ if(result.status!=='candidate'){root.insertAdjacentHTML('beforeend','<p class="notice">Enregistrement désactivé tant que plusieurs commandes restent possibles. Choisissez ou liez explicitement la commande avant de confirmer.</p>');return}
+ const candidate=result.candidates[0],projectAllocations=allocations.filter(item=>item.status==='active'&&item.destinationType==='project'&&String(item.destinationId)===String(candidate.projectId)&&supplierInvoiceMatchRemainingCents(item,matches)>0);
+ const rows=[...root.querySelectorAll('[data-reconciliation-line]')];
+ candidate.lines.forEach((line,index)=>{
+  const row=rows[index];if(!row)return;const receipts=(line.receipts||[]).map(receipt=>({...receipt,remainingMilli:supplierInvoiceReceiptRemainingMilli(receipt,matches)})).filter(receipt=>receipt.remainingMilli>0);
+  const cell=document.createElement('td');cell.dataset.matchControls='1';
+  if(!projectAllocations.length)cell.innerHTML='<small>Ventilez d’abord cette facture sur le chantier.</small>';
+  else if(!receipts.length)cell.innerHTML='<small>Aucune quantité reçue encore disponible à rapprocher.</small>';
+  else{
+   const allocationSelect=document.createElement('select');allocationSelect.name='matchAllocation';for(const allocation of projectAllocations){const option=new Option((allocation.destinationLabel||candidate.projectId)+' · reste '+reconciliationMoney(supplierInvoiceMatchRemainingCents(allocation,matches)),allocation.id);allocationSelect.add(option)}
+   const receiptSelect=document.createElement('select');receiptSelect.name='matchReceipt';for(const receipt of receipts){const option=new Option((receipt.deliveryNumber||receipt.deliveryNoteId)+' · reste '+reconciliationQuantity(receipt.remainingMilli,line.unit),receipt.deliveryLineId);option.dataset.deliveryNoteId=receipt.deliveryNoteId;option.dataset.remainingMilli=String(receipt.remainingMilli);receiptSelect.add(option)}
+   const button=document.createElement('button');button.type='button';button.className='btn';button.textContent='Confirmer ce rapprochement';button.onclick=()=>saveSupplierInvoiceMatch(expense,candidate,line,row,allocationSelect,receiptSelect,button);
+   const status=document.createElement('small');status.dataset.matchStatus='1';cell.append(allocationSelect,receiptSelect,button,status);
+  }
+  row.append(cell);
+ });
+ for(const table of root.querySelectorAll('.data-table table')){const head=table.querySelector('thead tr');if(head&&!head.querySelector('[data-match-head]')){const th=document.createElement('th');th.dataset.matchHead='1';th.textContent='Validation';head.append(th)}}
+ root.insertAdjacentHTML('beforeend','<p class="notice"><strong>Validation humaine obligatoire.</strong> Aucun rapprochement n’est créé par la simple proposition. Le serveur revérifie ventilation, chantier, commande, réception, quantité et montant au moment de confirmer.</p>');
+}
+async function saveSupplierInvoiceMatch(expense,candidate,line,row,allocationSelect,receiptSelect,button){
+ const status=row.querySelector('[data-match-status]'),quantity=Number(row.querySelector('[name="invoicedQuantity"]')?.value),unitPrice=Number(row.querySelector('[name="invoicedUnitPrice"]')?.value),receiptOption=receiptSelect.selectedOptions[0],matchedQuantityMilli=Math.round(quantity*1000),matchedCents=Math.round(quantity*unitPrice*100);
+ if(!Number.isFinite(quantity)||quantity<=0||!Number.isFinite(unitPrice)||unitPrice<=0||!receiptOption){status.textContent='Renseignez une quantité et un prix facturés positifs, puis choisissez la réception.';return}
+ if(matchedQuantityMilli>Number(receiptOption.dataset.remainingMilli||0)){status.textContent='La quantité dépasse le reste de cette réception.';return}
+ button.disabled=true;status.textContent='';
+ row.dataset.matchOperationKey||='supplier-match-'+crypto.randomUUID();
+ try{
+  await serverJson('/api/supplier-invoices/'+encodeURIComponent(expense.id)+'/matches',{method:'POST',body:JSON.stringify({allocationId:allocationSelect.value,projectId:candidate.projectId,orderId:candidate.orderId,orderLineId:line.orderLineId,deliveryNoteId:receiptOption.dataset.deliveryNoteId,deliveryLineId:receiptOption.value,matchedCents,matchedQuantityMilli,operationKey:row.dataset.matchOperationKey})});
+  toast('Rapprochement fournisseur enregistré avec traçabilité.');await openSupplierInvoiceReconciliation(expense.id);
+ }catch(error){status.textContent=error.message;button.disabled=false}
+}
+async function voidSupplierInvoiceMatch(expenseId,matchId){
+ if(!confirm('Annuler ce rapprochement ? L’historique sera conservé.'))return;
+ try{await serverJson('/api/supplier-invoices/'+encodeURIComponent(expenseId)+'/matches/'+encodeURIComponent(matchId)+'/void',{method:'POST'});toast('Rapprochement annulé avec traçabilité.');await openSupplierInvoiceReconciliation(expenseId)}catch(error){toast(error.message||'Annulation refusée.')}
+}
 async function openSupplierInvoiceReconciliation(expenseId){
  const expenses=typeof serverExpenses==='undefined'?[]:serverExpenses;
  const expense=expenses.find(item=>String(item.id)===String(expenseId));
@@ -204,9 +255,15 @@ async function openSupplierInvoiceReconciliation(expenseId){
  const orders=typeof purchaseOrders==='undefined'?[]:purchaseOrders;
  const deliveries=typeof deliveryNotes==='undefined'?[]:deliveryNotes;
  const result=supplierInvoiceReconciliationAnalyze(expense,orders,deliveries);
+ let allocations=null,matches=null;
+ try{const data=await serverJson('/api/expenses/'+encodeURIComponent(expenseId)+'/allocations');allocations=data.allocations||[]}catch{}
+ try{const data=await serverJson('/api/supplier-invoices/'+encodeURIComponent(expenseId)+'/matches');matches=data.matches||[]}catch{}
  modal('Rapprochement de facture fournisseur',supplierInvoiceReconciliationRender(expense,result));
+ enhanceSupplierInvoiceReconciliation(expense,result,allocations,matches);
 }
 
 globalThis.openSupplierInvoiceReconciliation=openSupplierInvoiceReconciliation;
 globalThis.updateSupplierInvoiceReconciliation=updateSupplierInvoiceReconciliation;
+globalThis.saveSupplierInvoiceMatch=saveSupplierInvoiceMatch;
+globalThis.voidSupplierInvoiceMatch=voidSupplierInvoiceMatch;
 globalThis.supplierInvoiceReconciliation={analyze:supplierInvoiceReconciliationAnalyze,render:supplierInvoiceReconciliationRender};

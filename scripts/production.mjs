@@ -7,9 +7,13 @@ import {mkdir, readFile, writeFile, unlink, rename} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
 import {productionConfig} from './production-config.mjs';
 import {openProductionDatabase} from './production-db.mjs';
-import {productionAuth} from './production-auth.mjs';
+import {productionAuth, createIpRateLimiter} from './production-auth.mjs';
 import {prepareAssetResponse,compressTextResponse} from './http-assets.mjs';
 import {backupConfig,createProductionBackup} from './production-backup.mjs';
+import {invitationEmail} from './invitation-email.mjs';
+import {createBankingRuntime} from './bank-runtime.mjs';
+import {createIfcModelConverter} from './ifc-model-converter.mjs';
+import {createRequestTrace} from './request-observability.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const unsafeMethods = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -17,8 +21,8 @@ const MAX_BODY = 16 * 1024 * 1024;
 const standaloneDesignTokens = 'color-scheme: dark;--sx-canvas:#0e1b1d; --sx-surface:#142729; --sx-raised:#1d3537; --sx-overlay:#234044; --sx-sunken:#0b1719;--sx-line:#2b4548; --sx-line-strong:#648486;--sx-ink:#f2f3ed; --sx-ink-soft:#d4e2de; --sx-muted:#a9c0bd; --sx-faint:#91aaa7; --sx-on-accent:#102d2e;--sx-accent:#add8cf;--sx-accent-ink:#bce5dc; --sx-accent-hover:#c3e7df; --sx-accent-soft:rgba(173,216,207,.12); --sx-accent-line:#add8cf;--sx-ok:#9bddb6; --sx-warn:#edca91; --sx-danger:#ffaca3; --sx-info:#a3cfe7;--sx-ok-soft:rgba(155,221,182,.12); --sx-warn-soft:rgba(237,202,145,.12); --sx-danger-soft:rgba(255,172,163,.12);--sx-info-soft:rgba(163,207,231,.12);--sx-dot-grid:rgba(255,255,255,.045);--sx-font-ui:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--sx-font-mono:ui-monospace,"Cascadia Mono",Consolas,monospace;--sx-text-2xs:11px; --sx-text-xs:12px; --sx-text-sm:13px; --sx-text-base:14px; --sx-text-lg:16px; --sx-text-xl:20px; --sx-text-2xl:26px;--sx-leading-tight:1.25; --sx-leading-normal:1.45; --sx-tracking-caps:.06em;--sx-space-1:2px; --sx-space-2:4px; --sx-space-3:8px; --sx-space-4:12px; --sx-space-5:16px; --sx-space-6:24px; --sx-space-7:32px; --sx-space-8:48px;--sx-radius-xs:6px; --sx-radius-sm:8px; --sx-radius-md:10px; --sx-radius-lg:14px; --sx-radius-pill:999px;--sx-shadow-1:0 2px 8px rgba(2,12,13,.1); --sx-shadow-2:0 12px 36px rgba(2,12,13,.3); --sx-shadow-3:0 24px 70px rgba(2,12,13,.5);--sx-ring:0 0 0 2px var(--sx-accent-line);--sx-row:34px; --sx-control:32px; --sx-tap:44px;--sx-rail:56px; --sx-topbar:48px;--sx-duration-1:120ms; --sx-duration-2:180ms; --sx-ease:cubic-bezier(.2,.7,.3,1);';
 const standalonePageStyle = `:root{${standaloneDesignTokens}}body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(ellipse at 12% 3%,rgba(70,117,116,.22),transparent 60%),radial-gradient(rgba(214,200,169,.08) .6px,transparent .8px) 0 0/5px 5px,var(--sx-canvas);color:var(--sx-ink);font:var(--sx-text-base) var(--sx-font-ui)}main{box-sizing:border-box;width:min(420px,calc(100vw - 32px));padding:var(--sx-space-6);border:1px solid var(--sx-line);border-radius:var(--sx-radius-md);background:var(--sx-surface);box-shadow:var(--sx-shadow-1)}h1{margin:0 0 var(--sx-space-5);font-size:var(--sx-text-xl);line-height:var(--sx-leading-tight)}p{line-height:var(--sx-leading-normal);color:var(--sx-muted)}label,input,button{display:block;width:100%;box-sizing:border-box}label{margin:var(--sx-space-4) 0;color:var(--sx-muted);font-size:var(--sx-text-sm)}input,button{min-height:44px;margin-top:var(--sx-space-2);padding:var(--sx-space-2) var(--sx-space-3);border:1px solid var(--sx-line-strong);border-radius:var(--sx-radius-sm);font:inherit}input{background:var(--sx-sunken);color:var(--sx-ink)}button{border-color:var(--sx-accent);background:var(--sx-accent);color:var(--sx-on-accent);cursor:pointer}button:focus-visible,input:focus-visible{outline:2px solid var(--sx-accent);outline-offset:2px;box-shadow:var(--sx-ring)}`;
 const standaloneStyleHash = createHash('sha256').update(standalonePageStyle).digest('base64');
-const loginPage = `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connexion — OUVRANE</title><style>${standalonePageStyle}</style></head><body><main><h1>Se connecter à OUVRANE</h1><form action="/auth/login" method="post"><label>E-mail<input name="email" type="email" autocomplete="username" required maxlength="254"></label><label>Mot de passe<input name="password" type="password" autocomplete="current-password" required maxlength="1024"></label><button>Se connecter</button></form><p>Utilisez le compte qui vous a été attribué par votre entreprise.</p></main></body></html>`;
-const loginContentSecurityPolicy = `default-src 'none'; style-src 'sha256-${standaloneStyleHash}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'`;
+const loginPage = await readFile(join(root,'web','ouvrane-login.html'),'utf8');
+const loginContentSecurityPolicy = "default-src 'none'; style-src 'self'; img-src 'self' data:; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'";
 const activationPage = authenticated => `<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>Invitation — OUVRANE</title><style>${standalonePageStyle}</style></head><body><main><h1>Rejoindre une entreprise sur OUVRANE</h1><p id="activation-status">Vérification du lien d’invitation…</p><form id="activation-form" data-authenticated="${authenticated ? 'true' : 'false'}"><label>Prénom<input name="firstName" autocomplete="given-name" maxlength="80"></label><label>Nom<input name="lastName" autocomplete="family-name" maxlength="100"></label><label>Mot de passe<input name="password" type="password" autocomplete="new-password" minlength="8" maxlength="1024"></label><button type="submit">${authenticated ? 'Confirmer mon accès' : 'Activer mon compte'}</button></form><p>Si vous avez déjà un compte OUVRANE, connectez-vous puis rouvrez ce lien d’invitation.</p><a href="/login">Se connecter</a></main><script src="/invite-activation.js" defer></script></body></html>`;
 const runtimeScript = `globalThis.SOCLE_PRODUCTION=true;globalThis.SOCLE_BLANK=true;
 const productionFetch=globalThis.fetch;globalThis.fetch=async function(...args){const response=await productionFetch(...args);if(response.status===401&&new URL(typeof args[0]==='string'?args[0]:args[0].url,location.href).origin===location.origin)location.replace('/login');return response;};
@@ -73,22 +77,23 @@ const redirect = (location, headers = {}) => response(null, 303, {location, ...h
 
 function htmlText(value) { return String(value || '').replace(/[&<>"']/g, character => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[character])); }
 
+// Client address for the per-IP limiter: behind the deployment proxy (o2switch Apache) the
+// socket address is always 127.0.0.1, so the trailing X-Forwarded-For entry appended by our
+// own proxy is used; a spoofed header still ends with the real address appended by Apache.
+function clientAddress(incoming) {
+  const forwarded = String(incoming.headers['x-forwarded-for'] || '').split(',').map(value => value.trim()).filter(Boolean);
+  return forwarded.length ? forwarded[forwarded.length - 1] : incoming.socket?.remoteAddress || 'unknown';
+}
+
 function createInvitationMailer(env, override) {
   if (typeof override === 'function') return override;
   if (!env.RESEND_API_KEY || !env.SOCLE_EMAIL_FROM) return null;
   return async ({to, token, expiresAt, organizationName, roleName, personName}) => {
-    const activation = new URL('/invite/activate', env.SOCLE_PUBLIC_URL);
-    activation.hash = token;
-    const organization = htmlText(organizationName || 'votre entreprise');
-    const subjectOrganization = String(organizationName || 'OUVRANE').replace(/[\r\n]+/g, ' ').slice(0, 120);
-    const role = htmlText(roleName || 'collaborateur');
-    const greeting = personName ? `Bonjour ${htmlText(personName)},` : 'Bonjour,';
-    const link = htmlText(activation.href);
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {'authorization': `Bearer ${env.RESEND_API_KEY}`, 'content-type': 'application/json'},
       signal: AbortSignal.timeout(10000),
-      body: JSON.stringify({from: env.SOCLE_EMAIL_FROM, to: [to], subject: `Invitation à rejoindre ${subjectOrganization}`, html: `<p>${greeting}</p><p>Vous êtes invité(e) à rejoindre <strong>${organization}</strong> avec le rôle <strong>${role}</strong>.</p><p><a href="${link}">Activer votre accès à OUVRANE</a></p><p>Ce lien expire le ${htmlText(expiresAt)}. Si vous n’attendiez pas cette invitation, ignorez ce message.</p>`})
+      body: JSON.stringify(invitationEmail({to,token,expiresAt,organizationName,roleName,personName},env))
     });
     if (!response.ok) throw new Error('Invitation email delivery failed.');
   };
@@ -115,7 +120,7 @@ async function bodyOf(incoming, limit = MAX_BODY) {
   return Buffer.concat(chunks);
 }
 
-export async function startProduction({env = process.env, logger = console, invitationMailer} = {}) {
+export async function startProduction({env = process.env, logger = console, invitationMailer, modelConverter} = {}) {
   const config = productionConfig(env);
   let backupDestination;
   try { backupDestination = backupConfig(env); }
@@ -128,12 +133,17 @@ export async function startProduction({env = process.env, logger = console, invi
   const backupState={enabled:Boolean(backupDestination),lastAt:null,lastError:''};
   const runBackup=async()=>{if(!backupDestination||backupBusy)return;backupBusy=true;try{await createProductionBackup({database:storage.database,databasePath:config.databasePath,config:backupDestination,logger});backupState.lastAt=new Date().toISOString();backupState.lastError='';}catch(error){backupState.lastError=String(error&&error.message||'Sauvegarde impossible.');}finally{backupBusy=false;}};
   const auth = productionAuth(storage.database, config.sessionSecret);
+  const ipRateLimiter = createIpRateLimiter();
   const mailer = createInvitationMailer(env, invitationMailer);
-  const workerEnv = {DB: storage.DB, SOCLE_ALLOW_BOOTSTRAP: '0', SOCLE_INVITATION_TEST_MODE: env.SOCLE_INVITATION_TEST_MODE === '1' ? '1' : '0', SOCLE_V3_MANUAL_INVITATIONS: env.SOCLE_V3_MANUAL_INVITATIONS === '1' ? '1' : '0', SOCLE_V3_MANUAL_ORGANIZATION_ID: env.SOCLE_V3_MANUAL_ORGANIZATION_ID || '', RAILWAY_PROJECT_ID: env.RAILWAY_PROJECT_ID || '', ...(mailer ? {sendInvitationEmail: mailer} : {})};
+  const banking = createBankingRuntime(env, {logger});
+  const models = modelConverter === undefined ? createIfcModelConverter() : modelConverter;
+  const workerEnv = {DB: storage.DB, ...(models ? {MODELS:models} : {}), ...(banking ? {BANKING:banking} : {}), SOCLE_ALLOW_BOOTSTRAP: '0', SOCLE_INVITATION_TEST_MODE: env.SOCLE_INVITATION_TEST_MODE === '1' ? '1' : '0', SOCLE_V3_MANUAL_INVITATIONS: env.SOCLE_V3_MANUAL_INVITATIONS === '1' ? '1' : '0', SOCLE_V3_MANUAL_ORGANIZATION_ID: env.SOCLE_V3_MANUAL_ORGANIZATION_ID || '', RAILWAY_PROJECT_ID: env.RAILWAY_PROJECT_ID || '', ...(mailer ? {sendInvitationEmail: mailer} : {})};
   const pending = new Set(); let stopping = false;
+  const startedAt = new Date().toISOString();
+  const buildInfo = await readFile(join(root, 'dist/build-info.json'), 'utf8').then(JSON.parse).catch(() => ({version:'development'}));
 
-  async function dispatch(incoming) {
-    if (stopping) return errorResponse(503, 'Service stopping');
+  async function dispatch(incoming, trace) {
+    if (stopping) return response(JSON.stringify({error:'Service momentanément indisponible.'}), 503, {'retry-after':'2'});
     if (!incoming.url?.startsWith('/') || incoming.url.startsWith('//')) return errorResponse(400, 'Invalid path');
     const url = new URL(incoming.url, config.origin);
     let path;
@@ -142,10 +152,14 @@ export async function startProduction({env = process.env, logger = console, invi
     if (path === '/health') {
       if (!['GET', 'HEAD'].includes(incoming.method)) return errorResponse(405, 'Method not allowed');
       storage.database.prepare('SELECT 1').get();
-      return response(incoming.method === 'HEAD' ? null : JSON.stringify({status:'ok',backup:backupState}));
+      return response(incoming.method === 'HEAD' ? null : JSON.stringify({status:'ok',version:buildInfo.version,startedAt,backup:backupState}));
     }
     if (unsafeMethods.has(incoming.method) && !config.trustedOrigins.has(incoming.headers.origin)) return errorResponse(403, 'Origin refused');
     if (['/manifest.webmanifest','/apple-touch-icon.png','/icon-192.png','/icon-512.png'].includes(path)) return worker.fetch(new Request(url, {method: incoming.method}), workerEnv);
+    if (['/ouvrane-login.css','/ouvrane-login.js','/ouvrane-01-eclipse.png','/ouvrane-02-cuivre.png','/ouvrane-03-lunaire.png','/ouvrane-galaxy.png','/ouvrane-relief.png','/ouvrane-nacre.png'].includes(path)) {
+      if (!['GET','HEAD'].includes(incoming.method)) return errorResponse(405,'Method not allowed');
+      return worker.fetch(new Request(url,{method:incoming.method}),workerEnv);
+    }
     const identity = auth.session(incoming.headers.cookie);
     if (path === '/invite/activate') {
       if (incoming.method !== 'GET') return errorResponse(405, 'Method not allowed');
@@ -155,12 +169,22 @@ export async function startProduction({env = process.env, logger = console, invi
       if (!['GET', 'HEAD'].includes(incoming.method)) return errorResponse(405, 'Method not allowed');
       return worker.fetch(new Request(url, {method: incoming.method}), workerEnv);
     }
+    if (path === '/bank/return') {
+      if (incoming.method !== 'GET') return errorResponse(405, 'Method not allowed');
+      const page = await worker.fetch(new Request(new URL('/bank-return.html',config.origin)),workerEnv);
+      return new Response(page.body,{status:page.status,headers:{'content-type':'text/html;charset=utf-8','cache-control':'no-store','referrer-policy':'no-referrer','x-content-type-options':'nosniff','content-security-policy':"default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"}});
+    }
+    if (path === '/bank-return.js') {
+      if (!['GET','HEAD'].includes(incoming.method)) return errorResponse(405,'Method not allowed');
+      return worker.fetch(new Request(url,{method:incoming.method}),workerEnv);
+    }
     if (path === '/login') {
       if (incoming.method !== 'GET') return errorResponse(405, 'Method not allowed');
       return identity ? redirect('/') : response(loginPage, 200, {'content-type': 'text/html;charset=utf-8', 'content-security-policy': loginContentSecurityPolicy});
     }
     if (path === '/auth/login') {
       if (incoming.method !== 'POST') return errorResponse(405, 'Method not allowed');
+      if (!ipRateLimiter(clientAddress(incoming))) return errorResponse(429, 'Trop de tentatives depuis cette adresse. Réessayez dans quelques minutes.');
       const bytes = await bodyOf(incoming, 4096);
       const json = incoming.headers['content-type']?.split(';')[0] === 'application/json';
       let value;
@@ -172,6 +196,7 @@ export async function startProduction({env = process.env, logger = console, invi
     }
     if (path === '/auth/activate') {
       if (incoming.method !== 'POST') return errorResponse(405, 'Method not allowed');
+      if (!ipRateLimiter(clientAddress(incoming))) return errorResponse(429, 'Trop de tentatives depuis cette adresse. Réessayez dans quelques minutes.');
       const bytes = await bodyOf(incoming, 4096);
       let value;
       try { value = JSON.parse(bytes.toString()); } catch { return errorResponse(400, 'Invalid request'); }
@@ -288,9 +313,11 @@ export async function startProduction({env = process.env, logger = console, invi
     for (const [name, value] of Object.entries(incoming.headers)) {
       if (value !== undefined && !name.startsWith('oai-') && !['host', 'connection', 'cookie', 'content-length', 'transfer-encoding', 'forwarded'].includes(name) && !name.startsWith('x-forwarded-')) headers.set(name, Array.isArray(value) ? value.join(',') : value);
     }
+    headers.set('x-request-id', trace.id);
     headers.set('oai-authenticated-user-id', identity.userId);
     headers.set('oai-authenticated-user-email', identity.email);
-    const body = ['GET', 'HEAD'].includes(incoming.method) ? undefined : await bodyOf(incoming);
+    const bodyLimit = path.startsWith('/api/project-models') ? (path.endsWith('/archive') ? 2000 : 1800000) : MAX_BODY;
+    const body = ['GET', 'HEAD'].includes(incoming.method) ? undefined : await bodyOf(incoming, bodyLimit);
     const workerMethod = incoming.method === 'HEAD' && !path.startsWith('/api/') && /\.(?:js|mjs|css)$/.test(path) ? 'GET' : incoming.method;
     let result = await worker.fetch(new Request(url, {method: workerMethod, headers, body}), workerEnv);
     if (incoming.method === 'GET' && result.headers.get('content-type')?.includes('text/html')) {
@@ -305,19 +332,25 @@ export async function startProduction({env = process.env, logger = console, invi
   }
 
   const server = http.createServer((incoming, outgoing) => {
+    const trace = createRequestTrace(incoming, {logger, version:buildInfo.version, logAll:env.SOCLE_ACCESS_LOG==='1'});
     const task = (async () => {
+      let status = 500, failure;
       try {
-        const result = await prepareAssetResponse(incoming, await compressTextResponse(incoming, await dispatch(incoming)));
-        const headers = Object.fromEntries(result.headers);
+        const result = await prepareAssetResponse(incoming, await compressTextResponse(incoming, await dispatch(incoming, trace)));
+        status = result.status;
+        const headers = Object.fromEntries(trace.headers(result.headers));
         Object.assign(headers, {'cache-control': result.headers.get('etag') ? headers['cache-control'] : 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': headers['referrer-policy'] || 'same-origin', 'strict-transport-security': 'max-age=31536000', 'x-frame-options': 'DENY'});
+        delete headers['x-ouvrane-asset-sha256'];
         outgoing.writeHead(result.status, headers);
         if (incoming.method === 'HEAD' || !result.body) outgoing.end();
         else await pipeline(Readable.fromWeb(result.body), outgoing);
       } catch (error) {
-        logger.error('Production request failed', {status: error.status || 500, name: error.name, message: error.message});
-        if (!outgoing.headersSent) { outgoing.writeHead(error.status || 500, {'content-type': 'application/json', 'cache-control': 'no-store'}); outgoing.end('{"error":"Request failed"}'); }
-        else outgoing.destroy();
-      }
+        failure = error; status = Number.isInteger(error.status) && error.status >= 400 && error.status <= 599 ? error.status : 500;
+        if (!outgoing.headersSent) {
+          outgoing.writeHead(status, Object.fromEntries(trace.headers({'content-type':'application/json;charset=utf-8','cache-control':'no-store'})));
+          outgoing.end(JSON.stringify({error:'La requête n’a pas pu être traitée.',requestId:trace.id}));
+        } else outgoing.destroy();
+      } finally { trace.finish(status, {error:failure, stopping}); }
     })();
     pending.add(task); task.finally(() => pending.delete(task));
   });
@@ -330,6 +363,7 @@ export async function startProduction({env = process.env, logger = console, invi
   function close() {
     return closePromise ||= (async () => {
       stopping = true;
+      await models?.close?.();
       clearInterval(backupTimer);
       const timer = setTimeout(() => server.closeAllConnections(), 10_000); timer.unref();
       await new Promise(done => server.close(done));
